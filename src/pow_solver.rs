@@ -2,7 +2,8 @@
 
 use anyhow::{Context, Result, anyhow};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use serde_json::{json, Value};
+use serde::{Deserialize, Serialize};
+use serde_json;
 use wasmtime::{Engine, Store, Instance, Memory, TypedFunc, Module};
 
 use crate::wasm_download::get_wasm_path;
@@ -21,12 +22,12 @@ pub struct Challenge {
 
 #[derive(Debug, Serialize)]
 pub struct SolveResponse {
-    algorithm: String,
-    challenge: String,
-    salt: String,
-    answer: i64,
-    signature: String,
-    target_path: String,
+    pub algorithm: String,
+    pub challenge: String,
+    pub salt: String,
+    pub answer: i64,
+    pub signature: String,
+    pub target_path: String,
 }
 
 /// Solver for DeepSeek Proof of Work challenges.

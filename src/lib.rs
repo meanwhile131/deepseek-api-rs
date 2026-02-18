@@ -14,6 +14,8 @@ use futures_util::StreamExt;
 use tokio::sync::Mutex;
 use bytes::{Buf, BytesMut};
 
+use crate::pow_solver::Challenge;
+
 const COMPLETION_PATH: &str = "/api/v0/chat/completion";
 const POW_REQUEST: &str = r#"{"target_path":"/api/v0/chat/completion"}"#;
 
@@ -105,12 +107,13 @@ impl DeepSeekAPI {
             .json::<Value>()
             .await?;
 
-        let challenge = challenge_response["data"]["biz_data"]["challenge"]
+        let challenge_value = challenge_response["data"]["biz_data"]["challenge"]
             .as_object()
             .cloned()
             .ok_or_else(|| anyhow!("Failed to get challenge"))?;
 
-        self.pow_solver.lock().await.solve_challenge(Value::Object(challenge))
+        let challenge: Challenge = serde_json::from_value(Value::Object(challenge_value))?;
+        self.pow_solver.lock().await.solve_challenge(challenge)
     }
 
     /// Completes a chat message (non-streaming).
