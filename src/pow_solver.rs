@@ -6,6 +6,28 @@ use serde_json::{json, Value};
 use wasmtime::{Engine, Store, Instance, Memory, TypedFunc, Module};
 
 use crate::wasm_download::get_wasm_path;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Challenge {
+    pub salt: String,
+    pub expire_at: i64,
+    pub challenge: String,
+    pub difficulty: f64,
+    pub algorithm: String,
+    pub signature: String,
+    pub target_path: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SolveResponse {
+    algorithm: String,
+    challenge: String,
+    salt: String,
+    answer: i64,
+    signature: String,
+    target_path: String,
+}
 
 /// Solver for DeepSeek Proof of Work challenges.
 pub struct POWSolver {
@@ -63,33 +85,16 @@ impl POWSolver {
     }
 
     /// Solves a challenge, returning the base64-encoded response.
-    pub fn solve_challenge(&mut self, challenge: Value) -> Result<String> {
-        let salt = challenge["salt"].as_str()
-            .ok_or_else(|| anyhow!("Missing salt"))?;
-        let expire_at = challenge["expire_at"]
-            .as_i64()
-            .ok_or_else(|| anyhow!("Missing expire_at"))?;
-        let challenge_str = challenge["challenge"].as_str()
-            .ok_or_else(|| anyhow!("Missing challenge"))?;
-        let difficulty = challenge["difficulty"]
-            .as_f64()
-            .ok_or_else(|| anyhow!("Missing difficulty"))?;
-        let algorithm = challenge["algorithm"].as_str()
-            .ok_or_else(|| anyhow!("Missing algorithm"))?;
-        let signature = challenge["signature"].as_str()
-            .ok_or_else(|| anyhow!("Missing signature"))?;
-        let target_path = challenge["target_path"].as_str()
-            .ok_or_else(|| anyhow!("Missing target_path"))?;
-
-        let prefix = format!("{}_{}_", salt, expire_at);
+    pub fn solve_challenge(&mut self, challenge: Challenge) -> Result<String> {
+        let prefix = format!("{}_{}_", challenge.salt, challenge.expire_at);
         let out_ptr = self.add_stack.call(&mut self.store, (-16,))?;
 
-        let (challenge_ptr, challenge_len) = self.write_str_to_memory(challenge_str)?;
+        let (challenge_ptr, challenge_len) = self.write_str_to_memory(&challenge.challenge)?;
         let (prefix_ptr, prefix_len) = self.write_str_to_memory(&prefix)?;
 
         self.wasm_solve.call(
             &mut self.store,
-            (out_ptr, challenge_ptr, challenge_len, prefix_ptr, prefix_len, difficulty),
+            (out_ptr, challenge_ptr, challenge_len, prefix_ptr, prefix_len, challenge.difficulty),
         )?;
 
         // Read status (first 4 bytes) and answer (bytes 8-16)
@@ -107,15 +112,16 @@ impl POWSolver {
         // Cleanup stack
         self.add_stack.call(&mut self.store, (16,))?;
 
-        let result = json!({
-            "algorithm": algorithm,
-            "challenge": challenge_str,
-            "salt": salt,
-            "answer": answer as i64, // answer is integer according to Python
-            "signature": signature,
-            "target_path": target_path,
-        });
+        let response = SolveResponse {
+            algorithm: challenge.algorithm,
+            challenge: challenge.challenge,
+            salt: challenge.salt,
+            answer: answer as i64,
+            signature: challenge.signature,
+            target_path: challenge.target_path,
+        };
 
-        Ok(BASE64.encode(result.to_string()))
+        let json_string = serde_json::to_string(&response)?;
+        Ok(BASE64.encode(json_string))
     }
 }
