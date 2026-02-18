@@ -69,7 +69,6 @@ impl DeepSeekAPI {
             .await?
             .error_for_status()?;
         let response_text = response.text().await?;
-        eprintln!("Raw create_chat response: {}", response_text);
         let response: CreateChatResponse = serde_json::from_str(&response_text)?;
         Ok(response.data.biz_data)
     }
@@ -130,7 +129,7 @@ impl DeepSeekAPI {
             .await?
             .error_for_status()?;
         let challenge_response_text = challenge_response.text().await?;
-        eprintln!("Raw challenge response: {}", challenge_response_text);
+
         let challenge_response: PowChallengeResponse = serde_json::from_str(&challenge_response_text)?;
 
         let challenge = challenge_response.data.biz_data.challenge;
@@ -167,7 +166,7 @@ impl DeepSeekAPI {
 
         // Get the full response body as text
         let response_text = response.text().await?;
-        eprintln!("Raw complete response text: {}", response_text);
+
 
         // If the response contains "data: " lines, treat as SSE; otherwise treat as single JSON
         if response_text.contains("\ndata: ") || response_text.starts_with("data: ") {
@@ -211,7 +210,7 @@ impl DeepSeekAPI {
                     continue;
                 }
                 let data_str = &line[6..];
-                eprintln!("Raw SSE data in complete(): {}", data_str);
+
                 let data: crate::models::StreamingUpdate = serde_json::from_str(data_str)?;
                 // Handle case where the entire data is a plain JSON object (not a patch)
                 if data.v.is_none() && data.p.is_none() {
@@ -251,11 +250,11 @@ impl DeepSeekAPI {
                 anyhow::bail!("API error: {}", err);
             }
 
-            eprintln!("Raw builder before building in complete(): {:?}", builder);
+
             builder.build().context("Failed to build final message")
         } else {
             // Single JSON response
-            eprintln!("Raw non-SSE response text: {}", response_text);
+
             let value: serde_json::Value = serde_json::from_str(&response_text)?;
             // Check for API error response (has code field non-zero)
             if let Some(code) = value.get("code").and_then(|c| c.as_i64()) {
@@ -349,7 +348,7 @@ impl DeepSeekAPI {
                             yield Err(anyhow::anyhow!("API error: {}", err));
                             return;
                         }
-                        eprintln!("Raw builder before building in complete_stream(): {:?}", builder);
+
                         match builder.build() {
                             Ok(final_msg) => {
                                 yield Ok(StreamChunk::Message(final_msg));
@@ -370,7 +369,7 @@ impl DeepSeekAPI {
                         continue;
                     }
                     let data_json = &line[6..];
-                    eprintln!("Raw streaming data: {}", String::from_utf8_lossy(data_json));
+
                     
                     // If we previously saw a toast event, this data line should contain the error.
                     // But we don't have a flag. Instead, we'll check if the data looks like an error.
