@@ -1,8 +1,6 @@
 //! End-to-end tests for the DeepSeek API client.
 //!
 //! These tests require the `DEEPSEEK_TOKEN` environment variable to be set.
-//! They are ignored by default to avoid network requests and rate limits.
-//! Run with: `cargo test -- --ignored` to execute them.
 
 use deepseek_api::{DeepSeekAPI, StreamChunk};
 use futures_util::{StreamExt, pin_mut};
@@ -26,8 +24,8 @@ async fn test_e2e_completion() {
         .await
         .unwrap();
 
-    assert!(!response.is_empty(), "Response should not be empty");
-    println!("Completion response: {}", response);
+    assert!(!response.response.content.is_empty(), "Response content should not be empty");
+    println!("Completion response: {:#?}", response);
 }
 
 #[tokio::test]
@@ -64,7 +62,9 @@ async fn test_e2e_streaming() {
                 println!("Thinking: {}", thought);
             }
             StreamChunk::Message(msg) => {
-                println!("Final message: {}", msg);
+                println!("Final message: {:#?}", msg);
+                // Optionally check content
+                assert!(!msg.response.content.is_empty(), "Final message content should not be empty");
             }
         }
     }

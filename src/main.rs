@@ -19,7 +19,7 @@ async fn main() -> anyhow::Result<()> {
     println!("Sending prompt: {}", prompt);
 
     let response = api.complete(chat_id, &prompt, None, false, false).await?;
-    println!("Response: {}", response);
+    println!("Response: {:#?}", response);
 
     Ok(())
 }

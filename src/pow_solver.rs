@@ -7,7 +7,6 @@ use serde_json;
 use wasmtime::{Engine, Store, Instance, Memory, TypedFunc, Module};
 
 use crate::wasm_download::get_wasm_path;
-use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Challenge {

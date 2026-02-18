@@ -5,6 +5,7 @@
 
 mod pow_solver;
 mod wasm_download;
+pub mod models;
 
 use reqwest::{Client, header};
 use serde_json::{json, Value};
@@ -124,7 +125,7 @@ impl DeepSeekAPI {
         parent_message_id: Option<i64>,
         search: bool,
         thinking: bool,
-    ) -> Result<String> {
+    ) -> Result<models::Message> {
         let pow_response = self.set_pow_header().await?;
         let client = self.client.clone();
         let request = json!({
@@ -195,16 +196,8 @@ impl DeepSeekAPI {
             }
         }
 
-        // The response content is nested under "response" -> "content"
-        message["response"]["content"]
-            .as_str()
-            .map(|s| s.to_string())
-            .ok_or_else(|| {
-                anyhow!(
-                    "Response content not found in message: {}",
-                    message
-                )
-            })
+        serde_json::from_value(message)
+            .context("Failed to parse message into Message struct")
     }
 
     /// Completes a chat message (streaming), yielding chunks of content or thinking.
@@ -281,8 +274,10 @@ impl DeepSeekAPI {
                         continue;
                     }
                     if line == &b"event: finish"[..] {
-                        if let Some(final_msg) = message["response"].as_str() {
-                            yield Ok(StreamChunk::Message(final_msg.to_string()));
+                        if let Ok(final_msg) = serde_json::from_value::<models::Message>(message.clone()) {
+                            yield Ok(StreamChunk::Message(final_msg));
+                        } else {
+                            // If parsing fails, maybe yield an error? For now, just ignore.
                         }
                         finished = true;
                         break;
@@ -389,7 +384,7 @@ impl DeepSeekAPI {
 pub enum StreamChunk {
     Content(String),
     Thinking(String),
-    Message(String),
+    Message(models::Message),
 }
 
 impl Clone for DeepSeekAPI {
