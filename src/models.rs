@@ -66,7 +66,6 @@ impl StreamingMessageBuilder {
         let path = update.p.as_deref().ok_or_else(|| anyhow!("Missing path"))?;
         let value = update.v.as_ref().ok_or_else(|| anyhow!("Missing v"))?;
         let operation = update.o.as_deref().unwrap_or("SET");
-        eprintln!("apply_update: path={}, operation={}, value={}", path, operation, value);
 
         let keys: Vec<&str> = path.split('/').collect();
         let mut current = &mut self.inner;
@@ -105,12 +104,10 @@ impl StreamingMessageBuilder {
             }
             _ => anyhow::bail!("Unknown operation {} at {}", operation, path),
         }
-        eprintln!("apply_update done. inner now: {}", self.inner);
         Ok(())
     }
 
     pub fn build(self) -> Result<Message> {
-        eprintln!("Raw builder JSON before building: {}", serde_json::to_string_pretty(&self.inner).unwrap_or_default());
         if let Some(response) = self.inner.get("response") {
             serde_json::from_value(response.clone()).map_err(Into::into)
         } else {
