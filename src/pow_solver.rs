@@ -96,6 +96,8 @@ impl POWSolver {
         let mem = self.memory.data(&self.store);
         let status = i32::from_le_bytes(mem[out_ptr as usize..(out_ptr+4) as usize].try_into()?);
         if status == 0 {
+            // Restore stack pointer before bailing
+            self.add_stack.call(&mut self.store, (16,))?;
             anyhow::bail!("WASM solve returned status 0 (failure)");
         }
 
