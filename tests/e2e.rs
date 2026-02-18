@@ -5,10 +5,9 @@
 //! Run with: `cargo test -- --ignored` to execute them.
 
 use deepseek_api::{DeepSeekAPI, StreamChunk};
-use futures_util::StreamExt;
+use futures_util::{StreamExt, pin_mut};
 
 #[tokio::test]
-#[ignore]
 async fn test_e2e_completion() {
     let token = match std::env::var("DEEPSEEK_TOKEN") {
         Ok(t) => t,
@@ -23,7 +22,7 @@ async fn test_e2e_completion() {
     let chat_id = chat["id"].as_str().expect("Chat ID not found");
 
     let response = api
-        .complete(chat_id, "Hello, what is Rust?", None, false, false)
+        .complete(chat_id, "Say 'test'", None, false, false)
         .await
         .unwrap();
 
@@ -32,7 +31,6 @@ async fn test_e2e_completion() {
 }
 
 #[tokio::test]
-#[ignore]
 async fn test_e2e_streaming() {
     let token = match std::env::var("DEEPSEEK_TOKEN") {
         Ok(t) => t,
@@ -46,13 +44,14 @@ async fn test_e2e_streaming() {
     let chat = api.create_chat().await.unwrap();
     let chat_id = chat["id"].as_str().expect("Chat ID not found").to_string();
 
-    let mut stream = api.complete_stream(
+    let stream = api.complete_stream(
         chat_id,
-        "Hello, what is Rust?".to_string(),
+        "Say 'test'".to_string(),
         None,
         false,
         false,
     );
+    pin_mut!(stream); // pin the stream so we can call .next()
 
     let mut got_content = false;
     while let Some(chunk) = stream.next().await {
