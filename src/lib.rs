@@ -16,6 +16,7 @@ use tokio::sync::Mutex;
 use bytes::{Buf, BytesMut};
 
 use crate::pow_solver::Challenge;
+use crate::models::StreamingMessageBuilder;
 
 const COMPLETION_PATH: &str = "/api/v0/chat/completion";
 const POW_REQUEST: &str = r#"{"target_path":"/api/v0/chat/completion"}"#;
@@ -164,40 +165,72 @@ impl DeepSeekAPI {
             .await?
             .error_for_status()?;
 
-        let mut builder = crate::models::StreamingMessageBuilder::default();
-        let mut current_property: Option<String> = None;
-        let mut buffer = BytesMut::new();
-        let mut finished = false;
+        // Get the full response body as text
+        let response_text = response.text().await?;
+        eprintln!("Raw complete response text: {}", response_text);
 
-        let mut bytes = response.bytes_stream();
-        while let Some(chunk) = bytes.next().await {
-            if finished {
-                break;
-            }
-            let chunk = chunk?;
-            buffer.extend_from_slice(&chunk);
-            while let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
-                let line = buffer.split_to(pos);
-                buffer.advance(1); // consume newline
+        // If the response contains "data: " lines, treat as SSE; otherwise treat as single JSON
+        if response_text.contains("\ndata: ") || response_text.starts_with("data: ") {
+            // SSE response
+            let mut builder = crate::models::StreamingMessageBuilder::default();
+            let mut current_property: Option<String> = None;
+            let mut finished = false;
+            let mut toast_error: Option<String> = None;
+
+            let lines: Vec<&str> = response_text.lines().collect();
+            let mut i = 0;
+            while i < lines.len() {
+                let line = lines[i];
+                i += 1;
                 if line.is_empty() {
                     continue;
                 }
-
-                if line == &b"event: finish"[..] {
+                if line == "event: finish" {
                     finished = true;
                     break;
                 }
-                if !line.starts_with(b"data: ") {
+                if line == "event: toast" {
+                    // Next line should be data: ...
+                    if i < lines.len() {
+                        let data_line = lines[i];
+                        i += 1;
+                        if data_line.starts_with("data: ") {
+                            let toast_data = &data_line[6..];
+                            // Try to parse error message
+                            if let Ok(toast) = serde_json::from_str::<serde_json::Value>(toast_data) {
+                                let msg = toast["content"].as_str().unwrap_or("Unknown error");
+                                toast_error = Some(msg.to_string());
+                            } else {
+                                toast_error = Some("Unknown toast error".to_string());
+                            }
+                        }
+                    }
+                    continue;
+                }
+                if !line.starts_with("data: ") {
                     continue;
                 }
                 let data_str = &line[6..];
-                let data: crate::models::StreamingUpdate = serde_json::from_slice(data_str)?;
+                eprintln!("Raw SSE data in complete(): {}", data_str);
+                let data: crate::models::StreamingUpdate = serde_json::from_str(data_str)?;
+                // Handle case where the entire data is a plain JSON object (not a patch)
+                if data.v.is_none() && data.p.is_none() {
+                    // Try to interpret the whole data as a message object
+                    let full_value: serde_json::Value = serde_json::from_str(data_str)?;
+                    if full_value.get("response").is_some() {
+                        builder = crate::models::StreamingMessageBuilder::from_value(full_value)?;
+                    }
+                    // Otherwise ignore (likely metadata)
+                    continue;
+                }
                 // Determine if this is a new object and get path before borrowing data
                 let is_new_object = data.v.as_ref().map_or(false, |v| v.is_object() && data.p.as_deref().unwrap_or("").is_empty());
                 let path = data.p.clone().unwrap_or_default();
                 if is_new_object {
-                    // New object (initial state)
-                    builder = crate::models::StreamingMessageBuilder::from_value(data.v.unwrap().clone())?;
+                    // New object (initial state) - only use if it contains a "response" field
+                    if data.v.as_ref().and_then(|v| v.get("response")).is_some() {
+                        builder = crate::models::StreamingMessageBuilder::from_value(data.v.unwrap().clone())?;
+                    }
                     continue;
                 }
                 if path.is_empty() {
@@ -213,9 +246,31 @@ impl DeepSeekAPI {
                     builder.apply_update(&data)?;
                 }
             }
-        }
 
-        builder.build().context("Failed to build final message")
+            if let Some(err) = toast_error {
+                anyhow::bail!("API error: {}", err);
+            }
+
+            eprintln!("Raw builder before building in complete(): {:?}", builder);
+            builder.build().context("Failed to build final message")
+        } else {
+            // Single JSON response
+            eprintln!("Raw non-SSE response text: {}", response_text);
+            let value: serde_json::Value = serde_json::from_str(&response_text)?;
+            // Check for API error response (has code field non-zero)
+            if let Some(code) = value.get("code").and_then(|c| c.as_i64()) {
+                if code != 0 {
+                    let msg = value["msg"].as_str().unwrap_or("Unknown error");
+                    anyhow::bail!("API error (code {}): {}", code, msg);
+                }
+            }
+            // Try to extract message from "response" field if present, otherwise assume the whole object is the message
+            if let Some(response_obj) = value.get("response") {
+                serde_json::from_value(response_obj.clone()).map_err(Into::into)
+            } else {
+                serde_json::from_value(value).map_err(Into::into)
+            }
+        }
     }
 
     /// Completes a chat message (streaming), yielding chunks of content or thinking.
@@ -270,6 +325,7 @@ impl DeepSeekAPI {
             let mut builder = crate::models::StreamingMessageBuilder::default();
             let mut current_property: Option<String> = None;
             let mut buffer = BytesMut::new();
+            let mut toast_error: Option<String> = None;
 
             let mut bytes = response.bytes_stream();
             while let Some(chunk) = bytes.next().await {
@@ -289,6 +345,11 @@ impl DeepSeekAPI {
                     }
                     if line == &b"event: finish"[..] {
                         // Build final message and yield it, then exit the stream
+                        if let Some(err) = toast_error {
+                            yield Err(anyhow::anyhow!("API error: {}", err));
+                            return;
+                        }
+                        eprintln!("Raw builder before building in complete_stream(): {:?}", builder);
                         match builder.build() {
                             Ok(final_msg) => {
                                 yield Ok(StreamChunk::Message(final_msg));
@@ -300,11 +361,29 @@ impl DeepSeekAPI {
                             }
                         }
                     }
+                    if line == &b"event: toast"[..] {
+                        // The next line should be a data line containing the error details.
+                        // Continue to the next iteration; we'll handle the data line in the next loop.
+                        continue;
+                    }
                     if !line.starts_with(b"data: ") {
                         continue;
                     }
                     let data_json = &line[6..];
                     eprintln!("Raw streaming data: {}", String::from_utf8_lossy(data_json));
+                    
+                    // If we previously saw a toast event, this data line should contain the error.
+                    // But we don't have a flag. Instead, we'll check if the data looks like an error.
+                    // We'll parse it generically.
+                    if let Ok(val) = serde_json::from_slice::<serde_json::Value>(data_json) {
+                        if val.get("type").and_then(|t| t.as_str()) == Some("error") {
+                            if let Some(content) = val.get("content").and_then(|c| c.as_str()) {
+                                yield Err(anyhow::anyhow!("API error: {}", content));
+                                return;
+                            }
+                        }
+                    }
+
                     let data: crate::models::StreamingUpdate = match serde_json::from_slice(data_json) {
                         Ok(d) => d,
                         Err(e) => {
@@ -312,6 +391,28 @@ impl DeepSeekAPI {
                             return;
                         }
                     };
+                    // Handle case where the entire data is a plain JSON object (not a patch)
+                    if data.v.is_none() && data.p.is_none() {
+                        // Try to interpret the whole data as a message object
+                        let full_value: serde_json::Value = match serde_json::from_slice(data_json) {
+                            Ok(v) => v,
+                            Err(e) => {
+                                yield Err(e.into());
+                                return;
+                            }
+                        };
+                        if full_value.get("response").is_some() {
+                            builder = match crate::models::StreamingMessageBuilder::from_value(full_value) {
+                                Ok(b) => b,
+                                Err(e) => {
+                                    yield Err(e);
+                                    return;
+                                }
+                            };
+                        }
+                        // Otherwise ignore (likely metadata)
+                        continue;
+                    }
                     // Extract necessary information without holding a reference across moves
                     let is_new_object = data.v.as_ref().map_or(false, |v| v.is_object() && data.p.as_deref().unwrap_or("").is_empty());
                     let path = data.p.clone().unwrap_or_default();
@@ -328,14 +429,16 @@ impl DeepSeekAPI {
                     };
 
                     if is_new_object {
-                        // New object (initial state)
-                        builder = match crate::models::StreamingMessageBuilder::from_value(data.v.unwrap().clone()) {
-                            Ok(b) => b,
-                            Err(e) => {
-                                yield Err(e);
-                                return;
-                            }
-                        };
+                        // New object (initial state) - only use if it contains a "response" field
+                        if data.v.as_ref().and_then(|v| v.get("response")).is_some() {
+                            builder = match crate::models::StreamingMessageBuilder::from_value(data.v.unwrap().clone()) {
+                                Ok(b) => b,
+                                Err(e) => {
+                                    yield Err(e);
+                                    return;
+                                }
+                            };
+                        }
                         continue;
                     }
 
