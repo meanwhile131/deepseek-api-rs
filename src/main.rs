@@ -12,8 +12,7 @@ async fn main() -> anyhow::Result<()> {
 
     let api = DeepSeekAPI::new(token).await?;
     let chat = api.create_chat().await?;
-    let chat_id = chat["id"].as_str()
-        .ok_or_else(|| anyhow::anyhow!("Chat ID not found"))?;
+    let chat_id = chat.id.as_str();
 
     println!("Chat ID: {}", chat_id);
     println!("Sending prompt: {}", prompt);

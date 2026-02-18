@@ -12,7 +12,7 @@ async fn test_e2e_completion() {
 
     let api = DeepSeekAPI::new(token).await.unwrap();
     let chat = api.create_chat().await.unwrap();
-    let chat_id = chat["id"].as_str().expect("Chat ID not found");
+    let chat_id = &chat.id;
 
     let response = api
         .complete(chat_id, "Say 'test'", None, false, false)
@@ -35,7 +35,7 @@ async fn test_e2e_streaming() {
 
     let api = DeepSeekAPI::new(token).await.unwrap();
     let chat = api.create_chat().await.unwrap();
-    let chat_id = chat["id"].as_str().expect("Chat ID not found").to_string();
+    let chat_id = chat.id.clone();
 
     let stream = api.complete_stream(
         chat_id,

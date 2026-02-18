@@ -8,9 +8,9 @@ mod wasm_download;
 pub mod models;
 
 use reqwest::{Client, header};
-use serde_json::{json, Value};
+use serde_json::json;
 use std::sync::Arc;
-use anyhow::{Result, anyhow, Context};
+use anyhow::{Result, Context};
 use futures_util::StreamExt;
 use tokio::sync::Mutex;
 use bytes::{Buf, BytesMut};
@@ -52,68 +52,87 @@ impl DeepSeekAPI {
     }
 
     /// Creates a new chat session.
-    pub async fn create_chat(&self) -> Result<Value> {
+    pub async fn create_chat(&self) -> Result<crate::models::ChatSession> {
+        #[derive(serde::Deserialize)]
+        struct CreateChatResponse {
+            data: CreateChatData,
+        }
+        #[derive(serde::Deserialize)]
+        struct CreateChatData {
+            biz_data: crate::models::ChatSession,
+        }
         let response = self.client
             .post("https://chat.deepseek.com/api/v0/chat_session/create")
             .body("{}")
             .send()
             .await?
-            .error_for_status()?
-            .json::<Value>()
-            .await?;
-
-        response["data"]["biz_data"]
-            .as_object()
-            .cloned()
-            .map(Value::Object)
-            .ok_or_else(|| anyhow!("Failed to parse chat creation response: {:?}", response))
+            .error_for_status()?;
+        let response_text = response.text().await?;
+        eprintln!("Raw create_chat response: {}", response_text);
+        let response: CreateChatResponse = serde_json::from_str(&response_text)?;
+        Ok(response.data.biz_data)
     }
 
     /// Gets information about a chat session.
-    pub async fn get_chat_info(&self, chat_id: &str) -> Result<Value> {
+    pub async fn get_chat_info(&self, chat_id: &str) -> Result<crate::models::ChatSession> {
+        #[derive(serde::Deserialize)]
+        struct GetChatInfoResponse {
+            code: i64,
+            msg: String,
+            data: GetChatInfoData,
+        }
+        #[derive(serde::Deserialize)]
+        struct GetChatInfoData {
+            biz_data: GetChatInfoBizData,
+        }
+        #[derive(serde::Deserialize)]
+        struct GetChatInfoBizData {
+            chat_session: crate::models::ChatSession,
+        }
         let url = format!(
             "https://chat.deepseek.com/api/v0/chat/history_messages?chat_session_id={}",
             chat_id
         );
-        let response = self.client
+        let response: GetChatInfoResponse = self.client
             .get(&url)
             .send()
             .await?
             .error_for_status()?
-            .json::<Value>()
+            .json()
             .await?;
 
-        if response["code"].as_i64() != Some(0) {
-            anyhow::bail!(
-                "Failed to get chat info: {}",
-                response["msg"].as_str().unwrap_or("Unknown error")
-            );
+        if response.code != 0 {
+            anyhow::bail!("Failed to get chat info: {}", response.msg);
         }
 
-        response["data"]["biz_data"]["chat_session"]
-            .as_object()
-            .cloned()
-            .map(Value::Object)
-            .ok_or_else(|| anyhow!("Failed to parse chat info response"))
+        Ok(response.data.biz_data.chat_session)
     }
 
     /// Sets the PoW header by solving a challenge.
     async fn set_pow_header(&self) -> Result<String> {
+        #[derive(serde::Deserialize)]
+        struct PowChallengeResponse {
+            data: PowChallengeData,
+        }
+        #[derive(serde::Deserialize)]
+        struct PowChallengeData {
+            biz_data: PowChallengeBizData,
+        }
+        #[derive(serde::Deserialize)]
+        struct PowChallengeBizData {
+            challenge: Challenge,
+        }
         let challenge_response = self.client
             .post("https://chat.deepseek.com/api/v0/chat/create_pow_challenge")
             .body(POW_REQUEST)
             .send()
             .await?
-            .error_for_status()?
-            .json::<Value>()
-            .await?;
+            .error_for_status()?;
+        let challenge_response_text = challenge_response.text().await?;
+        eprintln!("Raw challenge response: {}", challenge_response_text);
+        let challenge_response: PowChallengeResponse = serde_json::from_str(&challenge_response_text)?;
 
-        let challenge_value = challenge_response["data"]["biz_data"]["challenge"]
-            .as_object()
-            .cloned()
-            .ok_or_else(|| anyhow!("Failed to get challenge"))?;
-
-        let challenge: Challenge = serde_json::from_value(Value::Object(challenge_value))?;
+        let challenge = challenge_response.data.biz_data.challenge;
         self.pow_solver.lock().await.solve_challenge(challenge)
     }
 
@@ -145,7 +164,7 @@ impl DeepSeekAPI {
             .await?
             .error_for_status()?;
 
-        let mut message = Value::Null;
+        let mut builder = crate::models::StreamingMessageBuilder::default();
         let mut current_property: Option<String> = None;
         let mut buffer = BytesMut::new();
         let mut finished = false;
@@ -165,7 +184,6 @@ impl DeepSeekAPI {
                 }
 
                 if line == &b"event: finish"[..] {
-    
                     finished = true;
                     break;
                 }
@@ -173,38 +191,31 @@ impl DeepSeekAPI {
                     continue;
                 }
                 let data_str = &line[6..];
-                let data: Value = serde_json::from_slice(data_str)?;
-                if let Some(v) = data.get("v") {
-                    if v.is_object() {
-                        message = v.clone();
-                        continue;
+                let data: crate::models::StreamingUpdate = serde_json::from_slice(data_str)?;
+                // Determine if this is a new object and get path before borrowing data
+                let is_new_object = data.v.as_ref().map_or(false, |v| v.is_object() && data.p.as_deref().unwrap_or("").is_empty());
+                let path = data.p.clone().unwrap_or_default();
+                if is_new_object {
+                    // New object (initial state)
+                    builder = crate::models::StreamingMessageBuilder::from_value(data.v.unwrap().clone())?;
+                    continue;
+                }
+                if path.is_empty() {
+                    // continuation of previous path
+                    if let Some(ref cur) = current_property {
+                        let mut update = data;
+                        update.p = Some(cur.clone());
+                        update.o = Some("APPEND".to_string());
+                        builder.apply_update(&update)?;
                     }
-                    let path = data["p"].as_str().unwrap_or("");
-                    if path.is_empty() {
-                        // continuation
-                        if let Some(ref cur) = current_property {
-                            let mut data_with_path = data.clone();
-                            data_with_path["p"] = Value::String(cur.to_string());
-                            data_with_path["o"] = Value::String("APPEND".to_string());
-                            self.handle_property_update(&mut message, &data_with_path)?;
-                        }
-                    } else {
-                        current_property = Some(path.to_string());
-                        self.handle_property_update(&mut message, &data)?;
-                    }
+                } else {
+                    current_property = Some(path.clone());
+                    builder.apply_update(&data)?;
                 }
             }
         }
 
-        // Debug: print the raw message JSON
-        eprintln!("Raw message JSON: {}", serde_json::to_string_pretty(&message).unwrap());
-        // The actual message object is inside the "response" field
-        let response_value = message
-            .get("response")
-            .ok_or_else(|| anyhow!("Missing 'response' field in message"))?
-            .clone();
-        serde_json::from_value(response_value)
-            .context("Failed to parse message into Message struct")
+        builder.build().context("Failed to build final message")
     }
 
     /// Completes a chat message (streaming), yielding chunks of content or thinking.
@@ -256,16 +267,12 @@ impl DeepSeekAPI {
                 }
             };
 
-            let mut message = Value::Null;
+            let mut builder = crate::models::StreamingMessageBuilder::default();
             let mut current_property: Option<String> = None;
             let mut buffer = BytesMut::new();
-            let mut finished = false;
 
             let mut bytes = response.bytes_stream();
             while let Some(chunk) = bytes.next().await {
-                if finished {
-                    break;
-                }
                 let chunk = match chunk {
                     Ok(c) => c,
                     Err(e) => {
@@ -281,69 +288,87 @@ impl DeepSeekAPI {
                         continue;
                     }
                     if line == &b"event: finish"[..] {
-                        // Debug: print the raw message JSON
-                        eprintln!("Raw final message JSON: {}", serde_json::to_string_pretty(&message).unwrap());
-                        // The actual message object is inside the "response" field
-                        if let Some(response_value) = message.get("response").cloned() {
-                            if let Ok(final_msg) = serde_json::from_value::<models::Message>(response_value) {
+                        // Build final message and yield it, then exit the stream
+                        match builder.build() {
+                            Ok(final_msg) => {
                                 yield Ok(StreamChunk::Message(final_msg));
-                            } else {
-                                // If parsing fails, maybe yield an error? For now, just ignore.
+                                return;
+                            }
+                            Err(e) => {
+                                yield Err(e);
+                                return;
                             }
                         }
-                        finished = true;
-                        break;
                     }
                     if !line.starts_with(b"data: ") {
                         continue;
                     }
-                    let data: Value = match serde_json::from_slice(&line[6..]) {
+                    let data_json = &line[6..];
+                    eprintln!("Raw streaming data: {}", String::from_utf8_lossy(data_json));
+                    let data: crate::models::StreamingUpdate = match serde_json::from_slice(data_json) {
                         Ok(d) => d,
                         Err(e) => {
                             yield Err(e.into());
                             return;
                         }
                     };
-                    if let Some(v) = data.get("v") {
-                        if v.is_object() {
-                            message = v.clone();
-                            continue;
-                        }
-                        let path = data["p"].as_str().unwrap_or("");
-                        if path.is_empty() {
-                            if let Some(ref cur) = current_property {
-                                let mut data_with_path = data.clone();
-                                data_with_path["p"] = Value::String(cur.to_string());
-                                data_with_path["o"] = Value::String("APPEND".to_string());
-                                if let Err(e) = this.handle_property_update(&mut message, &data_with_path) {
-                                    yield Err(e);
-                                    return;
-                                }
-                                if cur == "response/content" {
-                                    if let Some(content) = v.as_str() {
-                                        yield Ok(StreamChunk::Content(content.to_string()));
-                                    }
-                                } else if cur == "response/thinking_content" {
-                                    if let Some(content) = v.as_str() {
-                                        yield Ok(StreamChunk::Thinking(content.to_string()));
-                                    }
-                                }
-                            }
+                    // Extract necessary information without holding a reference across moves
+                    let is_new_object = data.v.as_ref().map_or(false, |v| v.is_object() && data.p.as_deref().unwrap_or("").is_empty());
+                    let path = data.p.clone().unwrap_or_default();
+                    let content_to_yield = if !is_new_object && !path.is_empty() {
+                        if path == "response/content" {
+                            data.v.as_ref().and_then(|v| v.as_str().map(|s| StreamChunk::Content(s.to_string())))
+                        } else if path == "response/thinking_content" {
+                            data.v.as_ref().and_then(|v| v.as_str().map(|s| StreamChunk::Thinking(s.to_string())))
                         } else {
-                            current_property = Some(path.to_string());
-                            if let Err(e) = this.handle_property_update(&mut message, &data) {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
+                    if is_new_object {
+                        // New object (initial state)
+                        builder = match crate::models::StreamingMessageBuilder::from_value(data.v.unwrap().clone()) {
+                            Ok(b) => b,
+                            Err(e) => {
                                 yield Err(e);
                                 return;
                             }
-                            if path == "response/content" {
-                                if let Some(content) = v.as_str() {
-                                    yield Ok(StreamChunk::Content(content.to_string()));
-                                }
-                            } else if path == "response/thinking_content" {
-                                if let Some(content) = v.as_str() {
-                                    yield Ok(StreamChunk::Thinking(content.to_string()));
-                                }
+                        };
+                        continue;
+                    }
+
+                    if path.is_empty() {
+                        // continuation of previous path
+                        if let Some(ref cur) = current_property {
+                            // Determine content to yield before moving data
+                            let continuation_content = if cur == "response/content" {
+                                data.v.as_ref().and_then(|v| v.as_str().map(|s| StreamChunk::Content(s.to_string())))
+                            } else if cur == "response/thinking_content" {
+                                data.v.as_ref().and_then(|v| v.as_str().map(|s| StreamChunk::Thinking(s.to_string())))
+                            } else {
+                                None
+                            };
+                            let mut update = data.clone();
+                            update.p = Some(cur.clone());
+                            update.o = Some("APPEND".to_string());
+                            if let Err(e) = builder.apply_update(&update) {
+                                yield Err(e);
+                                return;
                             }
+                            if let Some(chunk) = continuation_content {
+                                yield Ok(chunk);
+                            }
+                        }
+                    } else {
+                        current_property = Some(path.clone());
+                        if let Err(e) = builder.apply_update(&data) {
+                            yield Err(e);
+                            return;
+                        }
+                        if let Some(chunk) = content_to_yield {
+                            yield Ok(chunk);
                         }
                     }
                 }
@@ -351,44 +376,7 @@ impl DeepSeekAPI {
         }
     }
 
-    fn handle_property_update(&self, obj: &mut Value, update: &Value) -> Result<()> {
-        let path = update["p"].as_str().ok_or_else(|| anyhow!("Missing path"))?;
-        let value = &update["v"];
-        let operation = update["o"].as_str().unwrap_or("SET");
-
-        let keys: Vec<&str> = path.split('/').collect();
-        let mut current = obj;
-        for &key in keys.iter().take(keys.len() - 1) {
-            current = current
-                .as_object_mut()
-                .and_then(|m| m.get_mut(key))
-                .ok_or_else(|| anyhow!("Invalid path"))?;
-        }
-        let last_key = keys.last().unwrap();
-        match operation {
-            "SET" => {
-                if let Some(map) = current.as_object_mut() {
-                    map.insert((*last_key).to_string(), value.clone());
-                } else {
-                    anyhow::bail!("Cannot SET on non-object");
-                }
-            }
-            "APPEND" => {
-                if let Some(map) = current.as_object_mut() {
-                    let entry = map.entry((*last_key).to_string()).or_insert(Value::String(String::new()));
-                    if let (Value::String(existing), Value::String(append)) = (entry, value) {
-                        *existing += append;
-                    } else {
-                        anyhow::bail!("APPEND only supported on strings");
-                    }
-                } else {
-                    anyhow::bail!("Cannot APPEND on non-object");
-                }
-            }
-            _ => anyhow::bail!("Unknown operation {}", operation),
-        }
-        Ok(())
-    }
+    // Removed handle_property_update; logic moved to StreamingMessageBuilder
 }
 
 /// Represents a chunk from the streaming response.
