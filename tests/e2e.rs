@@ -24,8 +24,13 @@ async fn test_e2e_completion() {
         .await
         .unwrap();
 
-    assert!(!response.response.content.is_empty(), "Response content should not be empty");
+    assert!(!response.content.is_empty(), "Response content should not be empty");
     println!("Completion response: {:#?}", response);
+    // Check that some expected fields are present
+    assert!(response.message_id.is_some(), "message_id should be present");
+    assert!(response.parent_id.is_some(), "parent_id should be present");
+    assert!(response.role.is_some(), "role should be present");
+    assert!(response.inserted_at.is_some(), "inserted_at should be present");
 }
 
 #[tokio::test]
@@ -63,8 +68,12 @@ async fn test_e2e_streaming() {
             }
             StreamChunk::Message(msg) => {
                 println!("Final message: {:#?}", msg);
-                // Optionally check content
-                assert!(!msg.response.content.is_empty(), "Final message content should not be empty");
+                // Optionally check content and fields
+                assert!(!msg.content.is_empty(), "Final message content should not be empty");
+                assert!(msg.message_id.is_some(), "message_id should be present");
+                assert!(msg.parent_id.is_some(), "parent_id should be present");
+                assert!(msg.role.is_some(), "role should be present");
+                assert!(msg.inserted_at.is_some(), "inserted_at should be present");
             }
         }
     }

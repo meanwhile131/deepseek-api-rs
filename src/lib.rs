@@ -196,7 +196,14 @@ impl DeepSeekAPI {
             }
         }
 
-        serde_json::from_value(message)
+        // Debug: print the raw message JSON
+        eprintln!("Raw message JSON: {}", serde_json::to_string_pretty(&message).unwrap());
+        // The actual message object is inside the "response" field
+        let response_value = message
+            .get("response")
+            .ok_or_else(|| anyhow!("Missing 'response' field in message"))?
+            .clone();
+        serde_json::from_value(response_value)
             .context("Failed to parse message into Message struct")
     }
 
@@ -274,10 +281,15 @@ impl DeepSeekAPI {
                         continue;
                     }
                     if line == &b"event: finish"[..] {
-                        if let Ok(final_msg) = serde_json::from_value::<models::Message>(message.clone()) {
-                            yield Ok(StreamChunk::Message(final_msg));
-                        } else {
-                            // If parsing fails, maybe yield an error? For now, just ignore.
+                        // Debug: print the raw message JSON
+                        eprintln!("Raw final message JSON: {}", serde_json::to_string_pretty(&message).unwrap());
+                        // The actual message object is inside the "response" field
+                        if let Some(response_value) = message.get("response").cloned() {
+                            if let Ok(final_msg) = serde_json::from_value::<models::Message>(response_value) {
+                                yield Ok(StreamChunk::Message(final_msg));
+                            } else {
+                                // If parsing fails, maybe yield an error? For now, just ignore.
+                            }
                         }
                         finished = true;
                         break;

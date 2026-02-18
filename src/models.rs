@@ -2,18 +2,16 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
-    pub id: Option<String>,
-    pub parent_message_id: Option<String>,
-    pub conversation_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub role: Option<String>,
-    pub created_at: Option<i64>,
-    pub updated_at: Option<i64>,
-    pub response: Response,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Response {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inserted_at: Option<f64>,
+    #[serde(default)]
     pub content: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub thinking_content: Option<String>,
 }
