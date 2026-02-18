@@ -7,13 +7,8 @@ use futures_util::{StreamExt, pin_mut};
 
 #[tokio::test]
 async fn test_e2e_completion() {
-    let token = match std::env::var("DEEPSEEK_TOKEN") {
-        Ok(t) => t,
-        Err(_) => {
-            println!("Skipping e2e test because DEEPSEEK_TOKEN is not set");
-            return;
-        }
-    };
+    let token = std::env::var("DEEPSEEK_TOKEN")
+        .expect("DEEPSEEK_TOKEN environment variable must be set to run this test");
 
     let api = DeepSeekAPI::new(token).await.unwrap();
     let chat = api.create_chat().await.unwrap();
@@ -35,13 +30,8 @@ async fn test_e2e_completion() {
 
 #[tokio::test]
 async fn test_e2e_streaming() {
-    let token = match std::env::var("DEEPSEEK_TOKEN") {
-        Ok(t) => t,
-        Err(_) => {
-            println!("Skipping e2e test because DEEPSEEK_TOKEN is not set");
-            return;
-        }
-    };
+    let token = std::env::var("DEEPSEEK_TOKEN")
+        .expect("DEEPSEEK_TOKEN environment variable must be set to run this test");
 
     let api = DeepSeekAPI::new(token).await.unwrap();
     let chat = api.create_chat().await.unwrap();
