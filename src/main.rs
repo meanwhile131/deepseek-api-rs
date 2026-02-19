@@ -1,4 +1,4 @@
-//! Simple CLI example for the DeepSeek API client.
+//! Simple CLI example for the `DeepSeek` API client.
 
 use deepseek_api::DeepSeekAPI;
 use std::env;
@@ -12,11 +12,11 @@ async fn main() -> anyhow::Result<()> {
     let chat = api.create_chat().await?;
     let chat_id = chat.id.as_str();
 
-    println!("Chat ID: {}", chat_id);
-    println!("Sending prompt: {}", prompt);
+    println!("Chat ID: {chat_id}");
+    println!("Sending prompt: {prompt}");
 
     let response = api.complete(chat_id, &prompt, None, false, false).await?;
-    println!("Response: {:#?}", response);
+    println!("Response: {response:#?}");
 
     Ok(())
 }

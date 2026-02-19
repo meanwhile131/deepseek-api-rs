@@ -1,7 +1,7 @@
-//! DeepSeek API client for Rust
+//! `DeepSeek` API client for Rust
 //!
-//! This crate provides an asynchronous client for the DeepSeek chat API,
-//! including Proof of Work (PoW) solving using a WebAssembly module.
+//! This crate provides an asynchronous client for the `DeepSeek` chat API,
+//! including Proof of Work (`PoW`) solving using a WebAssembly module.
 
 pub mod models;
 mod pow_solver;
@@ -20,7 +20,7 @@ use crate::pow_solver::Challenge;
 const COMPLETION_PATH: &str = "/api/v0/chat/completion";
 const POW_REQUEST: &str = r#"{"target_path":"/api/v0/chat/completion"}"#;
 
-/// Client for interacting with the DeepSeek API.
+/// Client for interacting with the `DeepSeek` API.
 pub struct DeepSeekAPI {
     client: Client,
     pow_solver: Arc<Mutex<pow_solver::POWSolver>>,
@@ -28,7 +28,14 @@ pub struct DeepSeekAPI {
 }
 
 impl DeepSeekAPI {
-    /// Creates a new DeepSeek API client.
+    /// Creates a new `DeepSeek` API client.
+    /// Creates a new `DeepSeek` API client.
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - The authorization header cannot be built.
+    /// - The HTTP client cannot be constructed.
+    /// - The Proof‑of‑Work solver fails to initialize.
     pub async fn new(token: impl Into<String>) -> Result<Self> {
         let token = token.into();
         let client = Client::builder()
@@ -36,7 +43,7 @@ impl DeepSeekAPI {
                 let mut headers = header::HeaderMap::new();
                 headers.insert(
                     header::AUTHORIZATION,
-                    header::HeaderValue::from_str(&format!("Bearer {}", token))
+                    header::HeaderValue::from_str(&format!("Bearer {token}"))
                         .context("Invalid authorization header")?,
                 );
                 headers.insert(
@@ -56,6 +63,10 @@ impl DeepSeekAPI {
     }
 
     /// Creates a new chat session.
+    /// Creates a new chat session.
+    ///
+    /// # Errors
+    /// Returns an error if the API request fails or the response cannot be parsed.
     pub async fn create_chat(&self) -> Result<crate::models::ChatSession> {
         #[derive(serde::Deserialize)]
         struct CreateChatResponse {
@@ -78,6 +89,11 @@ impl DeepSeekAPI {
     }
 
     /// Gets information about a chat session.
+    /// Gets information about a chat session.
+    ///
+    /// # Errors
+    /// Returns an error if the API request fails, the response indicates an error,
+    /// or the response cannot be parsed.
     pub async fn get_chat_info(&self, chat_id: &str) -> Result<crate::models::ChatSession> {
         #[derive(serde::Deserialize)]
         struct GetChatInfoResponse {
@@ -94,8 +110,7 @@ impl DeepSeekAPI {
             chat_session: crate::models::ChatSession,
         }
         let url = format!(
-            "https://chat.deepseek.com/api/v0/chat/history_messages?chat_session_id={}",
-            chat_id
+            "https://chat.deepseek.com/api/v0/chat/history_messages?chat_session_id={chat_id}"
         );
         let response: GetChatInfoResponse = self
             .client
@@ -113,7 +128,7 @@ impl DeepSeekAPI {
         Ok(response.data.biz_data.chat_session)
     }
 
-    /// Sets the PoW header by solving a challenge.
+    /// Sets the `PoW` header by solving a challenge.
     async fn set_pow_header(&self) -> Result<String> {
         #[derive(serde::Deserialize)]
         struct PowChallengeResponse {
@@ -144,6 +159,19 @@ impl DeepSeekAPI {
     }
 
     /// Completes a chat message (non-streaming).
+    /// Completes a chat message (non‑streaming).
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - The Proof‑of‑Work challenge cannot be solved.
+    /// - The API request fails or returns an error status.
+    /// - The response cannot be parsed into a `Message`.
+    ///
+    /// # Panics
+    /// This function uses `unwrap()` internally when handling SSE lines, but only in cases
+    /// where the data structure is guaranteed by the server format. If the server sends
+    /// malformed data, those panics could occur.
+    #[allow(clippy::too_many_lines)]
     pub async fn complete(
         &self,
         chat_id: &str,
@@ -164,7 +192,7 @@ impl DeepSeekAPI {
         });
 
         let response = client
-            .post(format!("https://chat.deepseek.com{}", COMPLETION_PATH))
+            .post(format!("https://chat.deepseek.com{COMPLETION_PATH}"))
             .header("x-ds-pow-response", &pow_response)
             .json(&request)
             .send()
@@ -256,7 +284,7 @@ impl DeepSeekAPI {
             }
 
             if let Some(err) = toast_error {
-                anyhow::bail!("API error: {}", err);
+                anyhow::bail!("API error: {err}");
             }
 
             builder.build().context("Failed to build final message")
@@ -265,12 +293,11 @@ impl DeepSeekAPI {
 
             let value: serde_json::Value = serde_json::from_str(&response_text)?;
             // Check for API error response (has code field non-zero)
-            if let Some(code) = value.get("code").and_then(|c| c.as_i64()) {
-                if code != 0 {
+            if let Some(code) = value.get("code").and_then(serde_json::Value::as_i64)
+                && code != 0 {
                     let msg = value["msg"].as_str().unwrap_or("Unknown error");
-                    anyhow::bail!("API error (code {}): {}", code, msg);
+                    anyhow::bail!("API error (code {code}): {msg}");
                 }
-            }
             // Try to extract message from "response" field if present, otherwise assume the whole object is the message
             if let Some(response_obj) = value.get("response") {
                 serde_json::from_value(response_obj.clone()).map_err(Into::into)
@@ -281,6 +308,19 @@ impl DeepSeekAPI {
     }
 
     /// Completes a chat message (streaming), yielding chunks of content or thinking.
+    /// Completes a chat message (streaming), yielding chunks of content or thinking.
+    ///
+    /// # Errors
+    /// Each yielded `Result` may contain an error if:
+    /// - The Proof‑of‑Work challenge cannot be solved.
+    /// - The API request fails.
+    /// - The streaming response cannot be parsed.
+    ///
+    /// # Panics
+    /// This function uses `unwrap()` internally when handling SSE lines, but only in cases
+    /// where the data structure is guaranteed by the server format. If the server sends
+    /// malformed data, those panics could occur.
+    #[allow(clippy::too_many_lines)]
     pub fn complete_stream(
         &self,
         chat_id: String,
@@ -309,7 +349,7 @@ impl DeepSeekAPI {
                 "thinking_enabled": thinking,
             });
             let response = match this.client
-                .post(format!("https://chat.deepseek.com{}", COMPLETION_PATH))
+                .post(format!("https://chat.deepseek.com{COMPLETION_PATH}"))
                 .header("x-ds-pow-response", &pow_response)
                 .json(&request)
                 .send()
@@ -353,7 +393,7 @@ impl DeepSeekAPI {
                     if line == b"event: finish"[..] {
                         // Build final message and yield it, then exit the stream
                         if let Some(err) = toast_error {
-                            yield Err(anyhow::anyhow!("API error: {}", err));
+                            yield Err(anyhow::anyhow!("API error: {err}"));
                             return;
                         }
 
@@ -382,14 +422,12 @@ impl DeepSeekAPI {
                     // If we previously saw a toast event, this data line should contain the error.
                     // But we don't have a flag. Instead, we'll check if the data looks like an error.
                     // We'll parse it generically.
-                    if let Ok(val) = serde_json::from_slice::<serde_json::Value>(data_json) {
-                        if val.get("type").and_then(|t| t.as_str()) == Some("error") {
-                            if let Some(content) = val.get("content").and_then(|c| c.as_str()) {
-                                yield Err(anyhow::anyhow!("API error: {}", content));
+                    if let Ok(val) = serde_json::from_slice::<serde_json::Value>(data_json)
+                        && val.get("type").and_then(|t| t.as_str()) == Some("error")
+                            && let Some(content) = val.get("content").and_then(|c| c.as_str()) {
+                                yield Err(anyhow::anyhow!("API error: {content}"));
                                 return;
                             }
-                        }
-                    }
 
                     let data: crate::models::StreamingUpdate = match serde_json::from_slice(data_json) {
                         Ok(d) => d,
@@ -437,8 +475,10 @@ impl DeepSeekAPI {
 
                     if is_new_object {
                         // New object (initial state) - only use if it contains a "response" field
-                        if data.v.as_ref().and_then(|v| v.get("response")).is_some() {
-                            builder = match crate::models::StreamingMessageBuilder::from_value(data.v.unwrap().clone()) {
+                        if let Some(v) = data.v.as_ref()
+                            && v.get("response").is_some()
+                        {
+                            builder = match crate::models::StreamingMessageBuilder::from_value(v.clone()) {
                                 Ok(b) => b,
                                 Err(e) => {
                                     yield Err(e);

@@ -1,4 +1,4 @@
-//! Download and cache the DeepSeek WASM module.
+//! Download and cache the `DeepSeek` WASM module.
 
 use anyhow::{Context, Result};
 use dirs::cache_dir;
@@ -7,7 +7,7 @@ use std::path::PathBuf;
 const WASM_FILENAME: &str = "sha3_wasm_bg.7b9ca65ddd.wasm";
 const WASM_URL: &str = "https://fe-static.deepseek.com/chat/static/sha3_wasm_bg.7b9ca65ddd.wasm";
 
-/// Returns the local filesystem path to the DeepSeek WASM module.
+/// Returns the local filesystem path to the `DeepSeek` WASM module.
 /// Downloads the WASM file if it is not already present in the user's cache directory.
 pub async fn get_wasm_path() -> Result<PathBuf> {
     let cache_dir = cache_dir()
@@ -24,7 +24,7 @@ pub async fn get_wasm_path() -> Result<PathBuf> {
     // Download the file
     let response = reqwest::get(WASM_URL)
         .await
-        .with_context(|| format!("Failed to download WASM from {}", WASM_URL))?;
+        .with_context(|| format!("Failed to download WASM from {WASM_URL}"))?;
 
     let bytes = response
         .bytes()
@@ -33,7 +33,7 @@ pub async fn get_wasm_path() -> Result<PathBuf> {
 
     tokio::fs::write(&local_path, &bytes)
         .await
-        .with_context(|| format!("Failed to write WASM to {:?}", local_path))?;
+        .with_context(|| format!("Failed to write WASM to {}", local_path.display()))?;
 
     Ok(local_path)
 }

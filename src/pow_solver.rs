@@ -8,6 +8,7 @@ use wasmtime::{Engine, Instance, Memory, Module, Store, TypedFunc};
 use crate::wasm_download::get_wasm_path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[allow(clippy::struct_field_names)]
 pub struct Challenge {
     pub salt: String,
     pub expire_at: i64,
@@ -28,7 +29,7 @@ pub struct SolveResponse {
     pub target_path: String,
 }
 
-/// Solver for DeepSeek Proof of Work challenges.
+/// Solver for `DeepSeek` Proof of Work challenges.
 pub struct POWSolver {
     store: Store<()>,
     memory: Memory,
@@ -38,12 +39,12 @@ pub struct POWSolver {
 }
 
 impl POWSolver {
-    /// Creates a new PoW solver, loading the WASM module from cache or downloading it.
+    /// Creates a new `PoW` solver, loading the WASM module from cache or downloading it.
     pub async fn new() -> Result<Self> {
         let wasm_path = get_wasm_path().await?;
         let wasm_bytes = tokio::fs::read(&wasm_path)
             .await
-            .with_context(|| format!("Failed to read WASM file at {:?}", wasm_path))?;
+            .with_context(|| format!("Failed to read WASM file at {}", wasm_path.display()))?;
 
         let engine = Engine::default();
         let module = Module::new(&engine, wasm_bytes)?;
@@ -74,14 +75,16 @@ impl POWSolver {
     /// Writes a string to WASM linear memory and returns (pointer, length).
     fn write_str_to_memory(&mut self, data: &str) -> Result<(i32, i32)> {
         let bytes = data.as_bytes();
-        let len = bytes.len() as i32;
-        let ptr = self.alloc.call(&mut self.store, (len, 1))?;
+        let len_i32 = i32::try_from(bytes.len())
+            .context("WASM memory size too large")?;
+        let ptr_i32 = self.alloc.call(&mut self.store, (len_i32, 1))?;
 
+        let ptr_usize = usize::try_from(ptr_i32).context("pointer negative")?;
+        let len_usize = usize::try_from(len_i32).context("length negative")?;
         let mem = self.memory.data_mut(&mut self.store);
-        let range = ptr as usize..(ptr + len) as usize;
-        mem[range].copy_from_slice(bytes);
+        mem[ptr_usize..(ptr_usize + len_usize)].copy_from_slice(bytes);
 
-        Ok((ptr, len))
+        Ok((ptr_i32, len_i32))
     }
 
     /// Solves a challenge, returning the base64-encoded response.
@@ -106,7 +109,8 @@ impl POWSolver {
 
         // Read status (first 4 bytes) and answer (bytes 8-16)
         let mem = self.memory.data(&self.store);
-        let status = i32::from_le_bytes(mem[out_ptr as usize..(out_ptr + 4) as usize].try_into()?);
+        let out_ptr_usize = usize::try_from(out_ptr).context("out_ptr negative")?;
+        let status = i32::from_le_bytes(mem[out_ptr_usize..(out_ptr_usize + 4)].try_into()?);
         if status == 0 {
             // Restore stack pointer before bailing
             self.add_stack.call(&mut self.store, (16,))?;
@@ -114,7 +118,7 @@ impl POWSolver {
         }
 
         let answer_bytes: [u8; 8] =
-            mem[(out_ptr + 8) as usize..(out_ptr + 16) as usize].try_into()?;
+            mem[(out_ptr_usize + 8)..(out_ptr_usize + 16)].try_into()?;
         let answer = f64::from_le_bytes(answer_bytes);
 
         // Cleanup stack
@@ -124,6 +128,7 @@ impl POWSolver {
             algorithm: challenge.algorithm,
             challenge: challenge.challenge,
             salt: challenge.salt,
+            #[allow(clippy::cast_possible_truncation)]
             answer: answer as i64,
             signature: challenge.signature,
             target_path: challenge.target_path,

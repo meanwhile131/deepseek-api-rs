@@ -58,63 +58,81 @@ impl Default for StreamingMessageBuilder {
 }
 
 impl StreamingMessageBuilder {
+    /// Creates a new `StreamingMessageBuilder` from a JSON value.
+    ///
+    /// # Errors
+    /// Returns an error if the provided value cannot be interpreted as a valid builder state.
+    /// (Currently always returns `Ok`.)
     pub fn from_value(v: serde_json::Value) -> Result<Self> {
         Ok(Self { inner: v })
     }
 
+    /// Applies a streaming update to the builder.
+    ///
+    /// # Errors
+    /// Returns an error if:
+    /// - The path is empty or invalid.
+    /// - The operation is unknown.
+    /// - An `APPEND` operation is used on a non‑string field.
+    /// - Internal pointer manipulations fail.
     pub fn apply_update(&mut self, update: &StreamingUpdate) -> Result<()> {
         let path = update.p.as_deref().ok_or_else(|| anyhow!("Missing path"))?;
         let value = update.v.as_ref().ok_or_else(|| anyhow!("Missing v"))?;
         let operation = update.o.as_deref().unwrap_or("SET");
 
         let keys: Vec<&str> = path.split('/').collect();
+        if keys.is_empty() {
+            anyhow::bail!("Empty path");
+        }
+
         let mut current = &mut self.inner;
+        // Navigate to the parent of the target key
         for &key in keys.iter().take(keys.len() - 1) {
-            // Ensure current is an object
             if !current.is_object() {
                 *current = serde_json::json!({});
             }
             // Get or create the next level
-            let next = if let Some(obj) = current.as_object_mut() {
-                obj.entry(key.to_string())
-                    .or_insert_with(|| serde_json::json!({}))
-            } else {
-                // Should not happen because we set to object above
-                unreachable!()
+            current = match current.as_object_mut() {
+                Some(obj) => obj
+                    .entry(key.to_string())
+                    .or_insert_with(|| serde_json::json!({})),
+                None => anyhow::bail!("Expected object at intermediate path segment"),
             };
-            current = next;
         }
-        let last_key = keys.last().unwrap();
-        // Ensure current is an object for the last key
+
+        let last_key = keys.last().ok_or_else(|| anyhow!("Empty path"))?;
         if !current.is_object() {
             *current = serde_json::json!({});
         }
+        let current_obj = current
+            .as_object_mut()
+            .ok_or_else(|| anyhow!("Expected object at target path"))?;
+
         match operation {
             "SET" => {
-                current
-                    .as_object_mut()
-                    .unwrap()
-                    .insert((*last_key).to_string(), value.clone());
+                current_obj.insert((*last_key).to_string(), value.clone());
             }
             "APPEND" => {
-                let entry = current
-                    .as_object_mut()
-                    .unwrap()
+                let entry = current_obj
                     .entry((*last_key).to_string())
                     .or_insert_with(|| serde_json::Value::String(String::new()));
                 if let (serde_json::Value::String(existing), serde_json::Value::String(append)) =
                     (entry, value)
                 {
-                    *existing += append;
+                    existing.push_str(append);
                 } else {
-                    anyhow::bail!("APPEND only supported on strings at {}", path);
+                    anyhow::bail!("APPEND only supported on strings at {path}");
                 }
             }
-            _ => anyhow::bail!("Unknown operation {} at {}", operation, path),
+            _ => anyhow::bail!("Unknown operation {operation} at {path}"),
         }
         Ok(())
     }
 
+    /// Builds the final `Message` from the accumulated patches.
+    ///
+    /// # Errors
+    /// Returns an error if the accumulated state cannot be deserialized into a `Message`.
     pub fn build(self) -> Result<Message> {
         if let Some(response) = self.inner.get("response") {
             serde_json::from_value(response.clone()).map_err(Into::into)
