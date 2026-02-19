@@ -23,6 +23,8 @@ This Rust crate provides an asynchronous client for the DeepSeek chat API, inclu
 - Handled `usize`/`i32` casts with `try_from` and proper error handling.
 - Added necessary `#[allow]` attributes for intentional casts and struct naming.
 - All clippy pedantic warnings have been addressed (verified with `cargo clippy -- -W clippy::pedantic`).
+- Added `.cargo/config.toml` to set test threads to 1, preventing parallel test execution to avoid rate limits.
+- Added caching to GitHub Actions workflow (`.github/workflows/rust.yml`) using `Swatinem/rust-cache` to speed up CI builds.
 
 ## Running Clippy
 To check for lint issues:
