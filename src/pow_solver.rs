@@ -1,9 +1,9 @@
 //! Proof of Work solver using WebAssembly.
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
-use wasmtime::{Engine, Store, Instance, Memory, TypedFunc, Module};
+use wasmtime::{Engine, Instance, Memory, Module, Store, TypedFunc};
 
 use crate::wasm_download::get_wasm_path;
 
@@ -41,7 +41,8 @@ impl POWSolver {
     /// Creates a new PoW solver, loading the WASM module from cache or downloading it.
     pub async fn new() -> Result<Self> {
         let wasm_path = get_wasm_path().await?;
-        let wasm_bytes = tokio::fs::read(&wasm_path).await
+        let wasm_bytes = tokio::fs::read(&wasm_path)
+            .await
             .with_context(|| format!("Failed to read WASM file at {:?}", wasm_path))?;
 
         let engine = Engine::default();
@@ -50,12 +51,16 @@ impl POWSolver {
 
         let instance = Instance::new(&mut store, &module, &[])?;
 
-        let memory = instance.get_memory(&mut store, "memory")
+        let memory = instance
+            .get_memory(&mut store, "memory")
             .ok_or_else(|| anyhow!("memory export not found"))?;
 
-        let wasm_solve = instance.get_typed_func::<(i32, i32, i32, i32, i32, f64), ()>(&mut store, "wasm_solve")?;
-        let alloc = instance.get_typed_func::<(i32, i32), i32>(&mut store, "__wbindgen_export_0")?;
-        let add_stack = instance.get_typed_func::<(i32,), i32>(&mut store, "__wbindgen_add_to_stack_pointer")?;
+        let wasm_solve = instance
+            .get_typed_func::<(i32, i32, i32, i32, i32, f64), ()>(&mut store, "wasm_solve")?;
+        let alloc =
+            instance.get_typed_func::<(i32, i32), i32>(&mut store, "__wbindgen_export_0")?;
+        let add_stack = instance
+            .get_typed_func::<(i32,), i32>(&mut store, "__wbindgen_add_to_stack_pointer")?;
 
         Ok(Self {
             store,
@@ -73,7 +78,7 @@ impl POWSolver {
         let ptr = self.alloc.call(&mut self.store, (len, 1))?;
 
         let mem = self.memory.data_mut(&mut self.store);
-        let range = ptr as usize .. (ptr + len) as usize;
+        let range = ptr as usize..(ptr + len) as usize;
         mem[range].copy_from_slice(bytes);
 
         Ok((ptr, len))
@@ -89,19 +94,27 @@ impl POWSolver {
 
         self.wasm_solve.call(
             &mut self.store,
-            (out_ptr, challenge_ptr, challenge_len, prefix_ptr, prefix_len, challenge.difficulty),
+            (
+                out_ptr,
+                challenge_ptr,
+                challenge_len,
+                prefix_ptr,
+                prefix_len,
+                challenge.difficulty,
+            ),
         )?;
 
         // Read status (first 4 bytes) and answer (bytes 8-16)
         let mem = self.memory.data(&self.store);
-        let status = i32::from_le_bytes(mem[out_ptr as usize..(out_ptr+4) as usize].try_into()?);
+        let status = i32::from_le_bytes(mem[out_ptr as usize..(out_ptr + 4) as usize].try_into()?);
         if status == 0 {
             // Restore stack pointer before bailing
             self.add_stack.call(&mut self.store, (16,))?;
             anyhow::bail!("WASM solve returned status 0 (failure)");
         }
 
-        let answer_bytes: [u8; 8] = mem[(out_ptr+8) as usize..(out_ptr+16) as usize].try_into()?;
+        let answer_bytes: [u8; 8] =
+            mem[(out_ptr + 8) as usize..(out_ptr + 16) as usize].try_into()?;
         let answer = f64::from_le_bytes(answer_bytes);
 
         // Cleanup stack

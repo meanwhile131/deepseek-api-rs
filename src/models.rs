@@ -1,5 +1,5 @@
+use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
-use anyhow::{Result, anyhow};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
@@ -38,7 +38,7 @@ pub struct StreamingUpdate {
     #[serde(default)]
     pub p: Option<String>, // JSON pointer path (missing = empty)
     pub v: Option<serde_json::Value>, // value; None for delete?
-    pub o: Option<String>, // operation (SET, APPEND, etc.)
+    pub o: Option<String>,            // operation (SET, APPEND, etc.)
 }
 
 // Builder that accumulates patches into a final Message
@@ -91,12 +91,20 @@ impl StreamingMessageBuilder {
         }
         match operation {
             "SET" => {
-                current.as_object_mut().unwrap().insert((*last_key).to_string(), value.clone());
+                current
+                    .as_object_mut()
+                    .unwrap()
+                    .insert((*last_key).to_string(), value.clone());
             }
             "APPEND" => {
-                let entry = current.as_object_mut().unwrap().entry((*last_key).to_string())
+                let entry = current
+                    .as_object_mut()
+                    .unwrap()
+                    .entry((*last_key).to_string())
                     .or_insert_with(|| serde_json::Value::String(String::new()));
-                if let (serde_json::Value::String(existing), serde_json::Value::String(append)) = (entry, value) {
+                if let (serde_json::Value::String(existing), serde_json::Value::String(append)) =
+                    (entry, value)
+                {
                     *existing += append;
                 } else {
                     anyhow::bail!("APPEND only supported on strings at {}", path);

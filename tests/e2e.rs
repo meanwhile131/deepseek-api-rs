@@ -3,7 +3,7 @@
 //! These tests require the `DEEPSEEK_TOKEN` environment variable to be set.
 
 use deepseek_api::{DeepSeekAPI, StreamChunk};
-use futures_util::{StreamExt, pin_mut};
+use futures_util::{pin_mut, StreamExt};
 
 #[tokio::test]
 async fn test_e2e_completion() {
@@ -19,13 +19,22 @@ async fn test_e2e_completion() {
         .await
         .unwrap();
 
-    assert!(!response.content.is_empty(), "Response content should not be empty");
+    assert!(
+        !response.content.is_empty(),
+        "Response content should not be empty"
+    );
     println!("Completion response: {:#?}", response);
     // Check that some expected fields are present
-    assert!(response.message_id.is_some(), "message_id should be present");
+    assert!(
+        response.message_id.is_some(),
+        "message_id should be present"
+    );
     assert!(response.parent_id.is_some(), "parent_id should be present");
     assert!(response.role.is_some(), "role should be present");
-    assert!(response.inserted_at.is_some(), "inserted_at should be present");
+    assert!(
+        response.inserted_at.is_some(),
+        "inserted_at should be present"
+    );
 }
 
 #[tokio::test]
@@ -64,7 +73,13 @@ async fn test_e2e_chat_info_after_completion() {
 
     // Send a completion
     let response = api
-        .complete(&chat_id, "Hello, this is a test message", None, false, false)
+        .complete(
+            &chat_id,
+            "Hello, this is a test message",
+            None,
+            false,
+            false,
+        )
         .await
         .unwrap();
 
@@ -72,9 +87,15 @@ async fn test_e2e_chat_info_after_completion() {
     let chat_info = api.get_chat_info(&chat_id).await.unwrap();
 
     // The chat should now have a current_message_id (the ID of the last message)
-    assert!(chat_info.current_message_id.is_some(), "current_message_id should be set after completion");
+    assert!(
+        chat_info.current_message_id.is_some(),
+        "current_message_id should be set after completion"
+    );
     assert_eq!(chat_info.current_message_id, response.message_id);
-    assert!(chat_info.updated_at > chat.inserted_at, "updated_at should be later than inserted_at");
+    assert!(
+        chat_info.updated_at > chat.inserted_at,
+        "updated_at should be later than inserted_at"
+    );
     // Version might have incremented
     assert!(chat_info.version >= chat.version);
 }
@@ -89,11 +110,20 @@ async fn test_e2e_thinking() {
     let chat_id = &chat.id;
 
     let response = api
-        .complete(chat_id, "Explain quantum computing in one sentence", None, false, true)
+        .complete(
+            chat_id,
+            "Explain quantum computing in one sentence",
+            None,
+            false,
+            true,
+        )
         .await
         .unwrap();
 
-    assert!(!response.content.is_empty(), "Response content should not be empty");
+    assert!(
+        !response.content.is_empty(),
+        "Response content should not be empty"
+    );
     // thinking_content may or may not be present depending on the model
     if let Some(thinking) = &response.thinking_content {
         println!("Thinking content: {}", thinking);
@@ -110,11 +140,20 @@ async fn test_e2e_search() {
     let chat_id = &chat.id;
 
     let response = api
-        .complete(chat_id, "What is the capital of France? Use web search.", None, true, false)
+        .complete(
+            chat_id,
+            "What is the capital of France? Use web search.",
+            None,
+            true,
+            false,
+        )
         .await
         .unwrap();
 
-    assert!(!response.content.is_empty(), "Response content should not be empty");
+    assert!(
+        !response.content.is_empty(),
+        "Response content should not be empty"
+    );
     println!("Search response: {}", response.content);
 }
 
@@ -132,8 +171,14 @@ async fn test_e2e_conversation() {
         .complete(&chat_id, "My name is Alice.", None, false, false)
         .await
         .unwrap();
-    assert!(first_response.message_id.is_some(), "First response should have message_id");
-    assert!(!first_response.content.is_empty(), "First response content should not be empty");
+    assert!(
+        first_response.message_id.is_some(),
+        "First response should have message_id"
+    );
+    assert!(
+        !first_response.content.is_empty(),
+        "First response content should not be empty"
+    );
     let first_message_id = first_response.message_id.unwrap();
 
     // Second message, referencing the first
@@ -148,8 +193,14 @@ async fn test_e2e_conversation() {
         .await
         .unwrap();
 
-    assert!(second_response.parent_id.is_some(), "Second response should have parent_id");
-    assert!(!second_response.content.is_empty(), "Second response content should not be empty");
+    assert!(
+        second_response.parent_id.is_some(),
+        "Second response should have parent_id"
+    );
+    assert!(
+        !second_response.content.is_empty(),
+        "Second response content should not be empty"
+    );
     // The response should contain "Alice" somewhere (or at least acknowledge the name)
     println!("Second response: {}", second_response.content);
     // We can't guarantee exact phrasing, but we can assert that content length is reasonable
@@ -164,13 +215,7 @@ async fn test_e2e_streaming() {
     let chat = api.create_chat().await.unwrap();
     let chat_id = chat.id.clone();
 
-    let stream = api.complete_stream(
-        chat_id,
-        "Hello".to_string(),
-        None,
-        false,
-        false,
-    );
+    let stream = api.complete_stream(chat_id, "Hello".to_string(), None, false, false);
     pin_mut!(stream); // pin the stream so we can call .next()
 
     let mut got_content = false;
@@ -186,7 +231,10 @@ async fn test_e2e_streaming() {
             StreamChunk::Message(msg) => {
                 println!("Final message: {:#?}", msg);
                 // Optionally check content and fields
-                assert!(!msg.content.is_empty(), "Final message content should not be empty");
+                assert!(
+                    !msg.content.is_empty(),
+                    "Final message content should not be empty"
+                );
                 assert!(msg.message_id.is_some(), "message_id should be present");
                 assert!(msg.parent_id.is_some(), "parent_id should be present");
                 assert!(msg.role.is_some(), "role should be present");
@@ -195,5 +243,8 @@ async fn test_e2e_streaming() {
         }
     }
 
-    assert!(got_content, "Should have received at least one content chunk");
+    assert!(
+        got_content,
+        "Should have received at least one content chunk"
+    );
 }

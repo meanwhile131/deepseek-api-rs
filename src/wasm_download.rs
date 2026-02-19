@@ -1,6 +1,6 @@
 //! Download and cache the DeepSeek WASM module.
 
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use dirs::cache_dir;
 use std::path::PathBuf;
 
@@ -26,7 +26,8 @@ pub async fn get_wasm_path() -> Result<PathBuf> {
         .await
         .with_context(|| format!("Failed to download WASM from {}", WASM_URL))?;
 
-    let bytes = response.bytes()
+    let bytes = response
+        .bytes()
         .await
         .context("Failed to read response body")?;
 

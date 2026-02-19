@@ -3,17 +3,17 @@
 //! This crate provides an asynchronous client for the DeepSeek chat API,
 //! including Proof of Work (PoW) solving using a WebAssembly module.
 
+pub mod models;
 mod pow_solver;
 mod wasm_download;
-pub mod models;
 
-use reqwest::{Client, header};
+use anyhow::{Context, Result};
+use bytes::{Buf, BytesMut};
+use futures_util::StreamExt;
+use reqwest::{header, Client};
 use serde_json::json;
 use std::sync::Arc;
-use anyhow::{Result, Context};
-use futures_util::StreamExt;
 use tokio::sync::Mutex;
-use bytes::{Buf, BytesMut};
 
 use crate::pow_solver::Challenge;
 
@@ -48,7 +48,11 @@ impl DeepSeekAPI {
             .build()?;
 
         let pow_solver = Arc::new(Mutex::new(pow_solver::POWSolver::new().await?));
-        Ok(Self { client, pow_solver, token })
+        Ok(Self {
+            client,
+            pow_solver,
+            token,
+        })
     }
 
     /// Creates a new chat session.
@@ -61,7 +65,8 @@ impl DeepSeekAPI {
         struct CreateChatData {
             biz_data: crate::models::ChatSession,
         }
-        let response = self.client
+        let response = self
+            .client
             .post("https://chat.deepseek.com/api/v0/chat_session/create")
             .body("{}")
             .send()
@@ -92,7 +97,8 @@ impl DeepSeekAPI {
             "https://chat.deepseek.com/api/v0/chat/history_messages?chat_session_id={}",
             chat_id
         );
-        let response: GetChatInfoResponse = self.client
+        let response: GetChatInfoResponse = self
+            .client
             .get(&url)
             .send()
             .await?
@@ -121,7 +127,8 @@ impl DeepSeekAPI {
         struct PowChallengeBizData {
             challenge: Challenge,
         }
-        let challenge_response = self.client
+        let challenge_response = self
+            .client
             .post("https://chat.deepseek.com/api/v0/chat/create_pow_challenge")
             .body(POW_REQUEST)
             .send()
@@ -129,7 +136,8 @@ impl DeepSeekAPI {
             .error_for_status()?;
         let challenge_response_text = challenge_response.text().await?;
 
-        let challenge_response: PowChallengeResponse = serde_json::from_str(&challenge_response_text)?;
+        let challenge_response: PowChallengeResponse =
+            serde_json::from_str(&challenge_response_text)?;
 
         let challenge = challenge_response.data.biz_data.challenge;
         self.pow_solver.lock().await.solve_challenge(challenge)
@@ -166,7 +174,6 @@ impl DeepSeekAPI {
         // Get the full response body as text
         let response_text = response.text().await?;
 
-
         // If the response contains "data: " lines, treat as SSE; otherwise treat as single JSON
         if response_text.contains("\ndata: ") || response_text.starts_with("data: ") {
             // SSE response
@@ -192,7 +199,8 @@ impl DeepSeekAPI {
                         i += 1;
                         if let Some(toast_data) = data_line.strip_prefix("data: ") {
                             // Try to parse error message
-                            if let Ok(toast) = serde_json::from_str::<serde_json::Value>(toast_data) {
+                            if let Ok(toast) = serde_json::from_str::<serde_json::Value>(toast_data)
+                            {
                                 let msg = toast["content"].as_str().unwrap_or("Unknown error");
                                 toast_error = Some(msg.to_string());
                             } else {
@@ -219,12 +227,17 @@ impl DeepSeekAPI {
                     continue;
                 }
                 // Determine if this is a new object and get path before borrowing data
-                let is_new_object = data.v.as_ref().is_some_and(|v| v.is_object() && data.p.as_deref().unwrap_or("").is_empty());
+                let is_new_object = data
+                    .v
+                    .as_ref()
+                    .is_some_and(|v| v.is_object() && data.p.as_deref().unwrap_or("").is_empty());
                 let path = data.p.clone().unwrap_or_default();
                 if is_new_object {
                     // New object (initial state) - only use if it contains a "response" field
                     if data.v.as_ref().and_then(|v| v.get("response")).is_some() {
-                        builder = crate::models::StreamingMessageBuilder::from_value(data.v.unwrap().clone())?;
+                        builder = crate::models::StreamingMessageBuilder::from_value(
+                            data.v.unwrap().clone(),
+                        )?;
                     }
                     continue;
                 }
@@ -245,7 +258,6 @@ impl DeepSeekAPI {
             if let Some(err) = toast_error {
                 anyhow::bail!("API error: {}", err);
             }
-
 
             builder.build().context("Failed to build final message")
         } else {
@@ -366,7 +378,7 @@ impl DeepSeekAPI {
                     }
                     let data_json = &line[6..];
 
-                    
+
                     // If we previously saw a toast event, this data line should contain the error.
                     // But we don't have a flag. Instead, we'll check if the data looks like an error.
                     // We'll parse it generically.
