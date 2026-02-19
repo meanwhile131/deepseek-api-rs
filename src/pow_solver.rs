@@ -3,7 +3,6 @@
 use anyhow::{Context, Result, anyhow};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use serde::{Deserialize, Serialize};
-use serde_json;
 use wasmtime::{Engine, Store, Instance, Memory, TypedFunc, Module};
 
 use crate::wasm_download::get_wasm_path;
@@ -31,9 +30,7 @@ pub struct SolveResponse {
 
 /// Solver for DeepSeek Proof of Work challenges.
 pub struct POWSolver {
-    engine: Engine,
     store: Store<()>,
-    instance: Instance,
     memory: Memory,
     wasm_solve: TypedFunc<(i32, i32, i32, i32, i32, f64), ()>,
     alloc: TypedFunc<(i32, i32), i32>,
@@ -61,9 +58,7 @@ impl POWSolver {
         let add_stack = instance.get_typed_func::<(i32,), i32>(&mut store, "__wbindgen_add_to_stack_pointer")?;
 
         Ok(Self {
-            engine,
             store,
-            instance,
             memory,
             wasm_solve,
             alloc,

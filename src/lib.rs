@@ -16,7 +16,6 @@ use tokio::sync::Mutex;
 use bytes::{Buf, BytesMut};
 
 use crate::pow_solver::Challenge;
-use crate::models::StreamingMessageBuilder;
 
 const COMPLETION_PATH: &str = "/api/v0/chat/completion";
 const POW_REQUEST: &str = r#"{"target_path":"/api/v0/chat/completion"}"#;
@@ -173,7 +172,6 @@ impl DeepSeekAPI {
             // SSE response
             let mut builder = crate::models::StreamingMessageBuilder::default();
             let mut current_property: Option<String> = None;
-            let mut finished = false;
             let mut toast_error: Option<String> = None;
 
             let lines: Vec<&str> = response_text.lines().collect();
@@ -185,7 +183,6 @@ impl DeepSeekAPI {
                     continue;
                 }
                 if line == "event: finish" {
-                    finished = true;
                     break;
                 }
                 if line == "event: toast" {
@@ -193,8 +190,7 @@ impl DeepSeekAPI {
                     if i < lines.len() {
                         let data_line = lines[i];
                         i += 1;
-                        if data_line.starts_with("data: ") {
-                            let toast_data = &data_line[6..];
+                        if let Some(toast_data) = data_line.strip_prefix("data: ") {
                             // Try to parse error message
                             if let Ok(toast) = serde_json::from_str::<serde_json::Value>(toast_data) {
                                 let msg = toast["content"].as_str().unwrap_or("Unknown error");
@@ -223,7 +219,7 @@ impl DeepSeekAPI {
                     continue;
                 }
                 // Determine if this is a new object and get path before borrowing data
-                let is_new_object = data.v.as_ref().map_or(false, |v| v.is_object() && data.p.as_deref().unwrap_or("").is_empty());
+                let is_new_object = data.v.as_ref().is_some_and(|v| v.is_object() && data.p.as_deref().unwrap_or("").is_empty());
                 let path = data.p.clone().unwrap_or_default();
                 if is_new_object {
                     // New object (initial state) - only use if it contains a "response" field
@@ -324,7 +320,7 @@ impl DeepSeekAPI {
             let mut builder = crate::models::StreamingMessageBuilder::default();
             let mut current_property: Option<String> = None;
             let mut buffer = BytesMut::new();
-            let mut toast_error: Option<String> = None;
+            let toast_error: Option<String> = None;
 
             let mut bytes = response.bytes_stream();
             while let Some(chunk) = bytes.next().await {
@@ -342,7 +338,7 @@ impl DeepSeekAPI {
                     if line.is_empty() {
                         continue;
                     }
-                    if line == &b"event: finish"[..] {
+                    if line == b"event: finish"[..] {
                         // Build final message and yield it, then exit the stream
                         if let Some(err) = toast_error {
                             yield Err(anyhow::anyhow!("API error: {}", err));
@@ -360,7 +356,7 @@ impl DeepSeekAPI {
                             }
                         }
                     }
-                    if line == &b"event: toast"[..] {
+                    if line == b"event: toast"[..] {
                         // The next line should be a data line containing the error details.
                         // Continue to the next iteration; we'll handle the data line in the next loop.
                         continue;
@@ -413,7 +409,7 @@ impl DeepSeekAPI {
                         continue;
                     }
                     // Extract necessary information without holding a reference across moves
-                    let is_new_object = data.v.as_ref().map_or(false, |v| v.is_object() && data.p.as_deref().unwrap_or("").is_empty());
+                    let is_new_object = data.v.as_ref().is_some_and(|v| v.is_object() && data.p.as_deref().unwrap_or("").is_empty());
                     let path = data.p.clone().unwrap_or_default();
                     let content_to_yield = if !is_new_object && !path.is_empty() {
                         if path == "response/content" {
