@@ -391,8 +391,7 @@ impl DeepSeekAPI {
                     if line.is_empty() {
                         continue;
                     }
-                    // Debug: print raw line
-                    println!("RAW: {}", String::from_utf8_lossy(&line));
+                    
                     if line == b"event: finish"[..] {
                         // Build final message and yield it, then exit the stream
                         if let Some(err) = toast_error {
