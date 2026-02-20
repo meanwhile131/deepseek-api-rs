@@ -2,6 +2,8 @@
 
 use deepseek_api::DeepSeekAPI;
 use std::env;
+use futures_util::StreamExt;
+use tokio::pin;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -15,8 +17,20 @@ async fn main() -> anyhow::Result<()> {
     println!("Chat ID: {chat_id}");
     println!("Sending prompt: {prompt}");
 
-    let response = api.complete(chat_id, &prompt, None, false, false).await?;
-    println!("Response: {response:#?}");
+    let stream = api.complete_stream(chat_id.to_string(), prompt, None, true, true);
+    pin!(stream);
+    while let Some(chunk) = stream.next().await {
+        match chunk {
+            Ok(deepseek_api::StreamChunk::Content(text)) => println!("Content: {}", text),
+            Ok(deepseek_api::StreamChunk::Thinking(text)) => println!("Thinking: {}", text),
+            Ok(deepseek_api::StreamChunk::Message(msg)) => println!("Final message: {:#?}", msg),
+            Err(e) => eprintln!("Error: {}", e),
+        }
+    }
+
+    // If the final message's status is "INCOMPLETE", you can continue it by calling:
+    // let mut continue_stream = api.continue_stream(chat_id.to_string(), final_msg.message_id.unwrap(), true);
+    // while let Some(chunk) = continue_stream.next().await { ... }
 
     Ok(())
 }
