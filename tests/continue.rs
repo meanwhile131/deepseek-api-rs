@@ -19,7 +19,7 @@ async fn test_continue_incomplete_message() -> Result<()> {
     let prompt = "think for as long as possible, do NOT stop thinking";
 
     // Collect the streaming response until finish, with thinking enabled.
-    let mut stream = api.complete_stream(chat_id.to_string(), prompt.to_string(), None, false, true);
+    let stream = api.complete_stream(chat_id.to_string(), prompt.to_string(), None, false, true);
     pin!(stream);
 
     let mut final_message = None;
