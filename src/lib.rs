@@ -159,20 +159,16 @@ impl DeepSeekAPI {
         self.pow_solver.lock().await.solve_challenge(challenge)
     }
 
-    /// Completes a chat message (non-streaming).
     /// Completes a chat message (non‑streaming).
+    ///
+    /// This method internally uses the streaming version (`complete_stream`) and
+    /// collects all chunks, automatically handling any necessary continuations.
     ///
     /// # Errors
     /// Returns an error if:
     /// - The Proof‑of‑Work challenge cannot be solved.
     /// - The API request fails or returns an error status.
     /// - The response cannot be parsed into a `Message`.
-    ///
-    /// # Panics
-    /// This function uses `unwrap()` internally when handling SSE lines, but only in cases
-    /// where the data structure is guaranteed by the server format. If the server sends
-    /// malformed data, those panics could occur.
-    #[allow(clippy::too_many_lines)]
     pub async fn complete(
         &self,
         chat_id: &str,
@@ -181,135 +177,37 @@ impl DeepSeekAPI {
         search: bool,
         thinking: bool,
     ) -> Result<models::Message> {
-        let pow_response = self.set_pow_header().await?;
-        let client = self.client.clone();
-        let request = json!({
-            "chat_session_id": chat_id,
-            "prompt": prompt,
-            "parent_message_id": parent_message_id,
-            "ref_file_ids": [],
-            "search_enabled": search,
-            "thinking_enabled": thinking,
-        });
+        use futures_util::StreamExt;
+        use tokio::pin;
 
-        let response = client
-            .post(format!("https://chat.deepseek.com{COMPLETION_PATH}"))
-            .header("x-ds-pow-response", &pow_response)
-            .json(&request)
-            .send()
-            .await?
-            .error_for_status()?;
+        let stream = self.complete_stream(
+            chat_id.to_string(),
+            prompt.to_string(),
+            parent_message_id,
+            search,
+            thinking,
+        );
+        pin!(stream);
 
-        // Get the full response body as text
-        let response_text = response.text().await?;
-
-        // If the response contains "data: " lines, treat as SSE; otherwise treat as single JSON
-        if response_text.contains("\ndata: ") || response_text.starts_with("data: ") {
-            // SSE response
-            let mut builder = crate::models::StreamingMessageBuilder::default();
-            let mut current_property: Option<String> = None;
-            let mut toast_error: Option<String> = None;
-
-            let lines: Vec<&str> = response_text.lines().collect();
-            let mut i = 0;
-            while i < lines.len() {
-                let line = lines[i];
-                i += 1;
-                if line.is_empty() {
-                    continue;
-                }
-                if line == "event: finish" {
+        let mut final_message = None;
+        while let Some(chunk) = stream.next().await {
+            match chunk? {
+                StreamChunk::Content(_) | StreamChunk::Thinking(_) => continue,
+                StreamChunk::Message(msg) => {
+                    final_message = Some(msg);
                     break;
                 }
-                if line == "event: toast" {
-                    // Next line should be data: ...
-                    if i < lines.len() {
-                        let data_line = lines[i];
-                        i += 1;
-                        if let Some(toast_data) = data_line.strip_prefix("data: ") {
-                            // Try to parse error message
-                            if let Ok(toast) = serde_json::from_str::<serde_json::Value>(toast_data)
-                            {
-                                let msg = toast["content"].as_str().unwrap_or("Unknown error");
-                                toast_error = Some(msg.to_string());
-                            } else {
-                                toast_error = Some("Unknown toast error".to_string());
-                            }
-                        }
-                    }
-                    continue;
-                }
-                if !line.starts_with("data: ") {
-                    continue;
-                }
-                let data_str = &line[6..];
-
-                let data: crate::models::StreamingUpdate = serde_json::from_str(data_str)?;
-                // Handle case where the entire data is a plain JSON object (not a patch)
-                if data.v.is_none() && data.p.is_none() {
-                    // Try to interpret the whole data as a message object
-                    let full_value: serde_json::Value = serde_json::from_str(data_str)?;
-                    if full_value.get("response").is_some() {
-                        builder = crate::models::StreamingMessageBuilder::from_value(full_value)?;
-                    }
-                    // Otherwise ignore (likely metadata)
-                    continue;
-                }
-                // Determine if this is a new object and get path before borrowing data
-                let is_new_object = data
-                    .v
-                    .as_ref()
-                    .is_some_and(|v| v.is_object() && data.p.as_deref().unwrap_or("").is_empty());
-                let path = data.p.clone().unwrap_or_default();
-                if is_new_object {
-                    // New object (initial state) - only use if it contains a "response" field
-                    if data.v.as_ref().and_then(|v| v.get("response")).is_some() {
-                        builder = crate::models::StreamingMessageBuilder::from_value(
-                            data.v.unwrap().clone(),
-                        )?;
-                    }
-                    continue;
-                }
-                if path.is_empty() {
-                    // continuation of previous path
-                    if let Some(ref cur) = current_property {
-                        let mut update = data;
-                        update.p = Some(cur.clone());
-                        update.o = Some("APPEND".to_string());
-                        builder.apply_update(&update)?;
-                    }
-                } else {
-                    current_property = Some(path.clone());
-                    builder.apply_update(&data)?;
-                }
-            }
-
-            if let Some(err) = toast_error {
-                anyhow::bail!("API error: {err}");
-            }
-
-            builder.build().context("Failed to build final message")
-        } else {
-            // Single JSON response
-
-            let value: serde_json::Value = serde_json::from_str(&response_text)?;
-            // Check for API error response (has code field non-zero)
-            if let Some(code) = value.get("code").and_then(serde_json::Value::as_i64)
-                && code != 0 {
-                    let msg = value["msg"].as_str().unwrap_or("Unknown error");
-                    anyhow::bail!("API error (code {code}): {msg}");
-                }
-            // Try to extract message from "response" field if present, otherwise assume the whole object is the message
-            if let Some(response_obj) = value.get("response") {
-                serde_json::from_value(response_obj.clone()).map_err(Into::into)
-            } else {
-                serde_json::from_value(value).map_err(Into::into)
             }
         }
+
+        final_message.context("No final message received")
     }
 
     /// Completes a chat message (streaming), yielding chunks of content or thinking.
     /// Completes a chat message (streaming), yielding chunks of content or thinking.
+    ///
+    /// This method automatically continues the generation if the response is incomplete,
+    /// transparently issuing continuation requests until a complete message is obtained.
     ///
     /// # Errors
     /// Each yielded `Result` may contain an error if:
@@ -334,6 +232,7 @@ impl DeepSeekAPI {
 
         let this = self.clone();
         stream! {
+            // Initial request
             let pow_response = match this.set_pow_header().await {
                 Ok(r) => r,
                 Err(e) => {
@@ -342,7 +241,7 @@ impl DeepSeekAPI {
                 }
             };
             let request = json!({
-                "chat_session_id": chat_id,
+                "chat_session_id": chat_id.clone(),
                 "prompt": prompt,
                 "parent_message_id": parent_message_id,
                 "ref_file_ids": [],
@@ -370,165 +269,74 @@ impl DeepSeekAPI {
                 }
             };
 
-            let mut builder = crate::models::StreamingMessageBuilder::default();
-            let mut current_property: Option<String> = None;
-            let mut buffer = BytesMut::new();
-            let toast_error: Option<String> = None;
+            let mut current_stream = Box::pin(response_to_chunk_stream(response));
+            let mut message_id_for_continuation: Option<i64> = None;
 
-            let mut bytes = response.bytes_stream();
-            while let Some(chunk) = bytes.next().await {
-                let chunk = match chunk {
-                    Ok(c) => c,
-                    Err(e) => {
-                        yield Err(e.into());
-                        return;
+            loop {
+                while let Some(chunk) = current_stream.next().await {
+                    match chunk? {
+                        StreamChunk::Content(c) => yield Ok(StreamChunk::Content(c)),
+                        StreamChunk::Thinking(t) => yield Ok(StreamChunk::Thinking(t)),
+                        StreamChunk::Message(msg) => {
+                            if msg.status.as_deref() == Some("INCOMPLETE") {
+                                message_id_for_continuation = msg.message_id;
+                                break; // exit inner while to start continuation
+                            } else {
+                                yield Ok(StreamChunk::Message(msg));
+                                return;
+                            }
+                        }
                     }
-                };
-                buffer.extend_from_slice(&chunk);
-                while let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
-                    let line = buffer.split_to(pos);
-                    buffer.advance(1); // consume newline
-                    if line.is_empty() {
-                        continue;
-                    }
-                    
-                    if line == b"event: finish"[..] {
-                        // Build final message and yield it, then exit the stream
-                        if let Some(err) = toast_error {
-                            yield Err(anyhow::anyhow!("API error: {err}"));
+                }
+
+                if let Some(msg_id) = message_id_for_continuation.take() {
+                    // Start continuation
+                    let pow_response = match this.set_pow_header().await {
+                        Ok(r) => r,
+                        Err(e) => {
+                            yield Err(e);
                             return;
                         }
-
-                        match builder.build() {
-                            Ok(final_msg) => {
-                                yield Ok(StreamChunk::Message(final_msg));
-                                return;
-                            }
-                            Err(e) => {
-                                yield Err(e);
-                                return;
-                            }
-                        }
-                    }
-                    if line == b"event: toast"[..] {
-                        // The next line should be a data line containing the error details.
-                        // Continue to the next iteration; we'll handle the data line in the next loop.
-                        continue;
-                    }
-                    if !line.starts_with(b"data: ") {
-                        continue;
-                    }
-                    let data_json = &line[6..];
-
-
-                    // If we previously saw a toast event, this data line should contain the error.
-                    // But we don't have a flag. Instead, we'll check if the data looks like an error.
-                    // We'll parse it generically.
-                    if let Ok(val) = serde_json::from_slice::<serde_json::Value>(data_json)
-                        && val.get("type").and_then(|t| t.as_str()) == Some("error")
-                            && let Some(content) = val.get("content").and_then(|c| c.as_str()) {
-                                yield Err(anyhow::anyhow!("API error: {content}"));
-                                return;
-                            }
-
-                    let data: crate::models::StreamingUpdate = match serde_json::from_slice(data_json) {
-                        Ok(d) => d,
+                    };
+                    let request = json!({
+                        "chat_session_id": chat_id.clone(),
+                        "message_id": msg_id,
+                        "fallback_to_resume": true,
+                    });
+                    let response = match this.client
+                        .post(format!("https://chat.deepseek.com{CONTINUE_PATH}"))
+                        .header("x-ds-pow-response", &pow_response)
+                        .json(&request)
+                        .send()
+                        .await
+                    {
+                        Ok(r) => r,
                         Err(e) => {
                             yield Err(e.into());
                             return;
                         }
                     };
-                    // Handle case where the entire data is a plain JSON object (not a patch)
-                    if data.v.is_none() && data.p.is_none() {
-                        // Try to interpret the whole data as a message object
-                        let full_value: serde_json::Value = match serde_json::from_slice(data_json) {
-                            Ok(v) => v,
-                            Err(e) => {
-                                yield Err(e.into());
-                                return;
-                            }
-                        };
-                        if full_value.get("response").is_some() {
-                            builder = match crate::models::StreamingMessageBuilder::from_value(full_value) {
-                                Ok(b) => b,
-                                Err(e) => {
-                                    yield Err(e);
-                                    return;
-                                }
-                            };
-                        }
-                        // Otherwise ignore (likely metadata)
-                        continue;
-                    }
-                    // Extract necessary information without holding a reference across moves
-                    let is_new_object = data.v.as_ref().is_some_and(|v| v.is_object() && data.p.as_deref().unwrap_or("").is_empty());
-                    let path = data.p.clone().unwrap_or_default();
-                    let content_to_yield = if !is_new_object && !path.is_empty() {
-                        if path == "response/content" {
-                            data.v.as_ref().and_then(|v| v.as_str().map(|s| StreamChunk::Content(s.to_string())))
-                        } else if path == "response/thinking_content" {
-                            data.v.as_ref().and_then(|v| v.as_str().map(|s| StreamChunk::Thinking(s.to_string())))
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
-
-                    if is_new_object {
-                        // New object (initial state) - only use if it contains a "response" field
-                        if let Some(v) = data.v.as_ref()
-                            && v.get("response").is_some()
-                        {
-                            builder = match crate::models::StreamingMessageBuilder::from_value(v.clone()) {
-                                Ok(b) => b,
-                                Err(e) => {
-                                    yield Err(e);
-                                    return;
-                                }
-                            };
-                        }
-                        continue;
-                    }
-
-                    if path.is_empty() {
-                        // continuation of previous path
-                        if let Some(ref cur) = current_property {
-                            // Determine content to yield before moving data
-                            let continuation_content = if cur == "response/content" {
-                                data.v.as_ref().and_then(|v| v.as_str().map(|s| StreamChunk::Content(s.to_string())))
-                            } else if cur == "response/thinking_content" {
-                                data.v.as_ref().and_then(|v| v.as_str().map(|s| StreamChunk::Thinking(s.to_string())))
-                            } else {
-                                None
-                            };
-                            let mut update = data.clone();
-                            update.p = Some(cur.clone());
-                            update.o = Some("APPEND".to_string());
-                            if let Err(e) = builder.apply_update(&update) {
-                                yield Err(e);
-                                return;
-                            }
-                            if let Some(chunk) = continuation_content {
-                                yield Ok(chunk);
-                            }
-                        }
-                    } else {
-                        current_property = Some(path.clone());
-                        if let Err(e) = builder.apply_update(&data) {
-                            yield Err(e);
+                    let response = match response.error_for_status() {
+                        Ok(r) => r,
+                        Err(e) => {
+                            yield Err(e.into());
                             return;
                         }
-                        if let Some(chunk) = content_to_yield {
-                            yield Ok(chunk);
-                        }
-                    }
+                    };
+                    current_stream = Box::pin(response_to_chunk_stream(response));
+                    // Loop again to process this new stream
+                } else {
+                    // No continuation ID – should not happen, but break to be safe
+                    break;
                 }
             }
         }
     }
 
     /// Continues an incomplete message (streaming).
+    ///
+    /// This method is used internally by `complete_stream` for auto‑continuation,
+    /// but can also be called manually if desired.
     ///
     /// # Errors
     /// Each yielded `Result` may contain an error if:
@@ -579,145 +387,9 @@ impl DeepSeekAPI {
                 }
             };
 
-            let mut builder = crate::models::StreamingMessageBuilder::default();
-            let mut current_property: Option<String> = None;
-            let mut buffer = BytesMut::new();
-            let toast_error: Option<String> = None;
-
-            let mut bytes = response.bytes_stream();
-            while let Some(chunk) = bytes.next().await {
-                let chunk = match chunk {
-                    Ok(c) => c,
-                    Err(e) => {
-                        yield Err(e.into());
-                        return;
-                    }
-                };
-                buffer.extend_from_slice(&chunk);
-                while let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
-                    let line = buffer.split_to(pos);
-                    buffer.advance(1); // consume newline
-                    if line.is_empty() {
-                        continue;
-                    }
-                    if line == b"event: finish"[..] {
-                        if let Some(err) = toast_error {
-                            yield Err(anyhow::anyhow!("API error: {err}"));
-                            return;
-                        }
-
-                        match builder.build() {
-                            Ok(final_msg) => {
-                                yield Ok(StreamChunk::Message(final_msg));
-                                return;
-                            }
-                            Err(e) => {
-                                yield Err(e);
-                                return;
-                            }
-                        }
-                    }
-                    if line == b"event: toast"[..] {
-                        continue;
-                    }
-                    if !line.starts_with(b"data: ") {
-                        continue;
-                    }
-                    let data_json = &line[6..];
-
-                    if let Ok(val) = serde_json::from_slice::<serde_json::Value>(data_json)
-                        && val.get("type").and_then(|t| t.as_str()) == Some("error")
-                            && let Some(content) = val.get("content").and_then(|c| c.as_str()) {
-                                yield Err(anyhow::anyhow!("API error: {content}"));
-                                return;
-                            }
-
-                    let data: crate::models::StreamingUpdate = match serde_json::from_slice(data_json) {
-                        Ok(d) => d,
-                        Err(e) => {
-                            yield Err(e.into());
-                            return;
-                        }
-                    };
-                    if data.v.is_none() && data.p.is_none() {
-                        let full_value: serde_json::Value = match serde_json::from_slice(data_json) {
-                            Ok(v) => v,
-                            Err(e) => {
-                                yield Err(e.into());
-                                return;
-                            }
-                        };
-                        if full_value.get("response").is_some() {
-                            builder = match crate::models::StreamingMessageBuilder::from_value(full_value) {
-                                Ok(b) => b,
-                                Err(e) => {
-                                    yield Err(e);
-                                    return;
-                                }
-                            };
-                        }
-                        continue;
-                    }
-                    let is_new_object = data.v.as_ref().is_some_and(|v| v.is_object() && data.p.as_deref().unwrap_or("").is_empty());
-                    let path = data.p.clone().unwrap_or_default();
-                    let content_to_yield = if !is_new_object && !path.is_empty() {
-                        if path == "response/content" {
-                            data.v.as_ref().and_then(|v| v.as_str().map(|s| StreamChunk::Content(s.to_string())))
-                        } else if path == "response/thinking_content" {
-                            data.v.as_ref().and_then(|v| v.as_str().map(|s| StreamChunk::Thinking(s.to_string())))
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    };
-
-                    if is_new_object {
-                        if let Some(v) = data.v.as_ref()
-                            && v.get("response").is_some()
-                        {
-                            builder = match crate::models::StreamingMessageBuilder::from_value(v.clone()) {
-                                Ok(b) => b,
-                                Err(e) => {
-                                    yield Err(e);
-                                    return;
-                                }
-                            };
-                        }
-                        continue;
-                    }
-
-                    if path.is_empty() {
-                        if let Some(ref cur) = current_property {
-                            let continuation_content = if cur == "response/content" {
-                                data.v.as_ref().and_then(|v| v.as_str().map(|s| StreamChunk::Content(s.to_string())))
-                            } else if cur == "response/thinking_content" {
-                                data.v.as_ref().and_then(|v| v.as_str().map(|s| StreamChunk::Thinking(s.to_string())))
-                            } else {
-                                None
-                            };
-                            let mut update = data.clone();
-                            update.p = Some(cur.clone());
-                            update.o = Some("APPEND".to_string());
-                            if let Err(e) = builder.apply_update(&update) {
-                                yield Err(e);
-                                return;
-                            }
-                            if let Some(chunk) = continuation_content {
-                                yield Ok(chunk);
-                            }
-                        }
-                    } else {
-                        current_property = Some(path.clone());
-                        if let Err(e) = builder.apply_update(&data) {
-                            yield Err(e);
-                            return;
-                        }
-                        if let Some(chunk) = content_to_yield {
-                            yield Ok(chunk);
-                        }
-                    }
-                }
+            let mut stream = Box::pin(response_to_chunk_stream(response));
+            while let Some(chunk) = stream.next().await {
+                yield chunk;
             }
         }
     }
@@ -739,6 +411,152 @@ impl Clone for DeepSeekAPI {
             client: self.client.clone(),
             pow_solver: Arc::clone(&self.pow_solver),
             token: self.token.clone(),
+        }
+    }
+}
+
+// Helper to turn an HTTP response into a stream of chunks.
+fn response_to_chunk_stream(response: reqwest::Response) -> impl futures_util::Stream<Item = Result<StreamChunk>> {
+    use async_stream::stream;
+    stream! {
+        let mut builder = crate::models::StreamingMessageBuilder::default();
+        let mut current_property: Option<String> = None;
+        let mut buffer = bytes::BytesMut::new();
+        let mut toast_error: Option<String> = None;
+
+        let mut bytes = response.bytes_stream();
+        while let Some(chunk) = bytes.next().await {
+            let chunk = match chunk {
+                Ok(c) => c,
+                Err(e) => {
+                    yield Err(e.into());
+                    return;
+                }
+            };
+            buffer.extend_from_slice(&chunk);
+            while let Some(pos) = buffer.iter().position(|&b| b == b'\n') {
+                let line = buffer.split_to(pos);
+                buffer.advance(1); // consume newline
+                if line.is_empty() {
+                    continue;
+                }
+                if line == b"event: finish"[..] {
+                    if let Some(err) = toast_error {
+                        yield Err(anyhow::anyhow!("API error: {err}"));
+                        return;
+                    }
+                    match builder.build() {
+                        Ok(final_msg) => {
+                            yield Ok(StreamChunk::Message(final_msg));
+                            return;
+                        }
+                        Err(e) => {
+                            yield Err(e);
+                            return;
+                        }
+                    }
+                }
+                if line == b"event: toast"[..] {
+                    continue;
+                }
+                if !line.starts_with(b"data: ") {
+                    continue;
+                }
+                let data_json = &line[6..];
+
+                if let Ok(val) = serde_json::from_slice::<serde_json::Value>(data_json)
+                    && val.get("type").and_then(|t| t.as_str()) == Some("error")
+                        && let Some(content) = val.get("content").and_then(|c| c.as_str()) {
+                            yield Err(anyhow::anyhow!("API error: {content}"));
+                            return;
+                        }
+
+                let data: crate::models::StreamingUpdate = match serde_json::from_slice(data_json) {
+                    Ok(d) => d,
+                    Err(e) => {
+                        yield Err(e.into());
+                        return;
+                    }
+                };
+                if data.v.is_none() && data.p.is_none() {
+                    let full_value: serde_json::Value = match serde_json::from_slice(data_json) {
+                        Ok(v) => v,
+                        Err(e) => {
+                            yield Err(e.into());
+                            return;
+                        }
+                    };
+                    if full_value.get("response").is_some() {
+                        builder = match crate::models::StreamingMessageBuilder::from_value(full_value) {
+                            Ok(b) => b,
+                            Err(e) => {
+                                yield Err(e);
+                                return;
+                            }
+                        };
+                    }
+                    continue;
+                }
+                let is_new_object = data.v.as_ref().is_some_and(|v| v.is_object() && data.p.as_deref().unwrap_or("").is_empty());
+                let path = data.p.clone().unwrap_or_default();
+                let content_to_yield = if !is_new_object && !path.is_empty() {
+                    if path == "response/content" {
+                        data.v.as_ref().and_then(|v| v.as_str().map(|s| StreamChunk::Content(s.to_string())))
+                    } else if path == "response/thinking_content" {
+                        data.v.as_ref().and_then(|v| v.as_str().map(|s| StreamChunk::Thinking(s.to_string())))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
+                if is_new_object {
+                    if let Some(v) = data.v.as_ref()
+                        && v.get("response").is_some()
+                    {
+                        builder = match crate::models::StreamingMessageBuilder::from_value(v.clone()) {
+                            Ok(b) => b,
+                            Err(e) => {
+                                yield Err(e);
+                                return;
+                            }
+                        };
+                    }
+                    continue;
+                }
+
+                if path.is_empty() {
+                    if let Some(ref cur) = current_property {
+                        let continuation_content = if cur == "response/content" {
+                            data.v.as_ref().and_then(|v| v.as_str().map(|s| StreamChunk::Content(s.to_string())))
+                        } else if cur == "response/thinking_content" {
+                            data.v.as_ref().and_then(|v| v.as_str().map(|s| StreamChunk::Thinking(s.to_string())))
+                        } else {
+                            None
+                        };
+                        let mut update = data.clone();
+                        update.p = Some(cur.clone());
+                        update.o = Some("APPEND".to_string());
+                        if let Err(e) = builder.apply_update(&update) {
+                            yield Err(e);
+                            return;
+                        }
+                        if let Some(chunk) = continuation_content {
+                            yield Ok(chunk);
+                        }
+                    }
+                } else {
+                    current_property = Some(path.clone());
+                    if let Err(e) = builder.apply_update(&data) {
+                        yield Err(e);
+                        return;
+                    }
+                    if let Some(chunk) = content_to_yield {
+                        yield Ok(chunk);
+                    }
+                }
+            }
         }
     }
 }
