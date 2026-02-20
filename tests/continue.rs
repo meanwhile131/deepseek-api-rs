@@ -43,50 +43,14 @@ async fn test_continue_incomplete_message() -> Result<()> {
         }
     }
 
-    let mut final_msg = final_message.expect("No final message received");
+    let final_msg = final_message.expect("No final message received");
 
-    // With the prompt "think for as long as possible, do NOT stop thinking", we expect the message to be incomplete.
-    // Assert that the status is "INCOMPLETE".
-    assert_eq!(final_msg.status.as_deref(), Some("INCOMPLETE"), "Expected incomplete message but got status {:?}", final_msg.status);
+    // With auto-continuation, the message should be complete.
+    assert_ne!(final_msg.status.as_deref(), Some("INCOMPLETE"), "Message should be complete after auto-continuation");
 
-    // Also check that we received some thinking content.
+    // Also check that we received some thinking and content chunks.
     assert!(!thinking_chunks.is_empty(), "Expected at least one thinking chunk");
-
-    let msg_id = final_msg.message_id.expect("Message ID missing for incomplete message");
-    println!("Message incomplete, continuing with message_id: {}", msg_id);
-    let mut continue_stream = api.continue_stream(chat_id.to_string(), msg_id, true);
-    pin!(continue_stream);
-
-    let mut continued_content = Vec::new();
-    let mut continued_thinking = Vec::new();
-    while let Some(chunk) = continue_stream.next().await {
-        match chunk? {
-            StreamChunk::Content(text) => {
-                println!("Continued content chunk ({} chars)", text.len());
-                continued_content.push(text);
-            }
-            StreamChunk::Thinking(text) => {
-                println!("Continued thinking chunk ({} chars)", text.len());
-                continued_thinking.push(text);
-            }
-            StreamChunk::Message(msg) => {
-                println!("Final continued message received with status: {:?}", msg.status);
-                final_msg = msg;
-                break;
-            }
-        }
-    }
-
-    // After continuation, the status should be "DONE" or at least not "INCOMPLETE".
-    // The exact status might be "DONE" or absent, but we expect it not to be incomplete.
-    assert_ne!(final_msg.status.as_deref(), Some("INCOMPLETE"), "Message still incomplete after continuation");
-
-    // Optionally, check that more content or thinking was added.
-    if !continued_content.is_empty() || !continued_thinking.is_empty() {
-        println!("Continuation added {} content chunks and {} thinking chunks", continued_content.len(), continued_thinking.len());
-    } else {
-        println!("No additional content received during continuation");
-    }
+    assert!(!content_chunks.is_empty(), "Expected at least one content chunk");
 
     // If we got here, the test passed.
     Ok(())
