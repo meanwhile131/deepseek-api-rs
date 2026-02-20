@@ -556,7 +556,7 @@ fn response_to_chunk_stream(response: reqwest::Response) -> impl futures_util::S
                 let data_json = &line[6..];
                 match parser.process_data_line(data_json) {
                     Ok(Some(chunk)) => yield Ok(chunk),
-                    Ok(None) => continue,
+                    Ok(None) => {},
                     Err(e) => {
                         yield Err(e);
                         return;
