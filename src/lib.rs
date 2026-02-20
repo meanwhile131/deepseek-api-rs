@@ -8,7 +8,7 @@ mod pow_solver;
 mod wasm_download;
 
 use anyhow::{Context, Result};
-use bytes::{Buf, BytesMut};
+use bytes::Buf;
 use futures_util::StreamExt;
 use reqwest::{header, Client};
 use serde_json::json;
@@ -281,10 +281,9 @@ impl DeepSeekAPI {
                             if msg.status.as_deref() == Some("INCOMPLETE") {
                                 message_id_for_continuation = msg.message_id;
                                 break; // exit inner while to start continuation
-                            } else {
-                                yield Ok(StreamChunk::Message(msg));
-                                return;
                             }
+                            yield Ok(StreamChunk::Message(msg));
+                            return;
                         }
                     }
                 }
@@ -422,7 +421,7 @@ fn response_to_chunk_stream(response: reqwest::Response) -> impl futures_util::S
         let mut builder = crate::models::StreamingMessageBuilder::default();
         let mut current_property: Option<String> = None;
         let mut buffer = bytes::BytesMut::new();
-        let mut toast_error: Option<String> = None;
+        let toast_error: Option<String> = None;
 
         let mut bytes = response.bytes_stream();
         while let Some(chunk) = bytes.next().await {

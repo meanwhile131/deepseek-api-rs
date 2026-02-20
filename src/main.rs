@@ -21,10 +21,10 @@ async fn main() -> anyhow::Result<()> {
     pin!(stream);
     while let Some(chunk) = stream.next().await {
         match chunk {
-            Ok(deepseek_api::StreamChunk::Content(text)) => println!("Content: {}", text),
-            Ok(deepseek_api::StreamChunk::Thinking(text)) => println!("Thinking: {}", text),
-            Ok(deepseek_api::StreamChunk::Message(msg)) => println!("Final message: {:#?}", msg),
-            Err(e) => eprintln!("Error: {}", e),
+            Ok(deepseek_api::StreamChunk::Content(text)) => println!("Content: {text}"),
+            Ok(deepseek_api::StreamChunk::Thinking(text)) => println!("Thinking: {text}"),
+            Ok(deepseek_api::StreamChunk::Message(msg)) => println!("Final message: {msg:#?}"),
+            Err(e) => eprintln!("Error: {e}"),
         }
     }
 
