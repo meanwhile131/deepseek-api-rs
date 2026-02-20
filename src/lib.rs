@@ -192,7 +192,7 @@ impl DeepSeekAPI {
         let mut final_message = None;
         while let Some(chunk) = stream.next().await {
             match chunk? {
-                StreamChunk::Content(_) | StreamChunk::Thinking(_) => continue,
+                StreamChunk::Content(_) | StreamChunk::Thinking(_) => (),
                 StreamChunk::Message(msg) => {
                     final_message = Some(msg);
                     break;
@@ -415,6 +415,7 @@ impl Clone for DeepSeekAPI {
 }
 
 // Helper to turn an HTTP response into a stream of chunks.
+#[allow(clippy::too_many_lines)]
 fn response_to_chunk_stream(response: reqwest::Response) -> impl futures_util::Stream<Item = Result<StreamChunk>> {
     use async_stream::stream;
     stream! {
