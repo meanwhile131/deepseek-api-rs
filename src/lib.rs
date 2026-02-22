@@ -219,7 +219,6 @@ impl DeepSeekAPI {
     /// This function uses `unwrap()` internally when handling SSE lines, but only in cases
     /// where the data structure is guaranteed by the server format. If the server sends
     /// malformed data, those panics could occur.
-    #[allow(clippy::too_many_lines)]
     pub fn complete_stream(
         &self,
         chat_id: String,
@@ -342,7 +341,6 @@ impl DeepSeekAPI {
     /// - The Proof‑of‑Work challenge cannot be solved.
     /// - The API request fails.
     /// - The streaming response cannot be parsed.
-    #[allow(clippy::too_many_lines)]
     pub fn continue_stream(
         &self,
         chat_id: String,

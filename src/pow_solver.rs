@@ -8,11 +8,12 @@ use wasmtime::{Engine, Instance, Memory, Module, Store, TypedFunc};
 use crate::wasm_download::get_wasm_path;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[allow(clippy::struct_field_names)]
+
 pub struct Challenge {
     pub salt: String,
     pub expire_at: i64,
-    pub challenge: String,
+    #[serde(rename = "challenge")]
+    pub value: String,
     pub difficulty: f64,
     pub algorithm: String,
     pub signature: String,
@@ -92,7 +93,7 @@ impl POWSolver {
         let prefix = format!("{}_{}_", challenge.salt, challenge.expire_at);
         let out_ptr = self.add_stack.call(&mut self.store, (-16,))?;
 
-        let (challenge_ptr, challenge_len) = self.write_str_to_memory(&challenge.challenge)?;
+        let (challenge_ptr, challenge_len) = self.write_str_to_memory(&challenge.value)?;
         let (prefix_ptr, prefix_len) = self.write_str_to_memory(&prefix)?;
 
         self.wasm_solve.call(
@@ -126,8 +127,10 @@ impl POWSolver {
 
         let response = SolveResponse {
             algorithm: challenge.algorithm,
-            challenge: challenge.challenge,
+            challenge: challenge.value,
             salt: challenge.salt,
+            
+            // The answer from WASM is guaranteed to be an integer within i64 range.
             #[allow(clippy::cast_possible_truncation)]
             answer: answer as i64,
             signature: challenge.signature,
