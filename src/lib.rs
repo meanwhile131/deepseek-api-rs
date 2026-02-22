@@ -211,10 +211,6 @@ impl DeepSeekAPI {
     /// - The API request fails.
     /// - The streaming response cannot be parsed.
     ///
-    /// # Panics
-    /// This function uses `unwrap()` internally when handling SSE lines, but only in cases
-    /// where the data structure is guaranteed by the server format. If the server sends
-    /// malformed data, those panics could occur.
     pub fn complete_stream(
         &self,
         chat_id: String,
