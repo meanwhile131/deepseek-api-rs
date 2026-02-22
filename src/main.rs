@@ -1,8 +1,8 @@
 //! Simple CLI example for the `DeepSeek` API client.
 
 use deepseek_api::DeepSeekAPI;
-use std::env;
 use futures_util::StreamExt;
+use std::env;
 use tokio::pin;
 
 #[tokio::main]

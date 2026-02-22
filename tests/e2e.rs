@@ -3,7 +3,7 @@
 //! These tests require the `DEEPSEEK_TOKEN` environment variable to be set.
 
 use deepseek_api::{DeepSeekAPI, StreamChunk};
-use futures_util::{pin_mut, StreamExt};
+use futures_util::{StreamExt, pin_mut};
 
 #[tokio::test]
 async fn test_e2e_completion() {

@@ -46,11 +46,21 @@ async fn test_continue_incomplete_message() -> Result<()> {
     let final_msg = final_message.expect("No final message received");
 
     // With auto-continuation, the message should be complete.
-    assert_ne!(final_msg.status.as_deref(), Some("INCOMPLETE"), "Message should be complete after auto-continuation");
+    assert_ne!(
+        final_msg.status.as_deref(),
+        Some("INCOMPLETE"),
+        "Message should be complete after auto-continuation"
+    );
 
     // Also check that we received some thinking and content chunks.
-    assert!(!thinking_chunks.is_empty(), "Expected at least one thinking chunk");
-    assert!(!content_chunks.is_empty(), "Expected at least one content chunk");
+    assert!(
+        !thinking_chunks.is_empty(),
+        "Expected at least one thinking chunk"
+    );
+    assert!(
+        !content_chunks.is_empty(),
+        "Expected at least one content chunk"
+    );
 
     // If we got here, the test passed.
     Ok(())

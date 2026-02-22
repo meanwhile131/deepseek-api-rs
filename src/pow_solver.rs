@@ -1,7 +1,7 @@
 //! Proof of Work solver using WebAssembly.
 
-use anyhow::{anyhow, Context, Result};
-use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+use anyhow::{Context, Result, anyhow};
+use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
 use serde::{Deserialize, Serialize};
 use wasmtime::{Engine, Instance, Memory, Module, Store, TypedFunc};
 
@@ -76,8 +76,7 @@ impl POWSolver {
     /// Writes a string to WASM linear memory and returns (pointer, length).
     fn write_str_to_memory(&mut self, data: &str) -> Result<(i32, i32)> {
         let bytes = data.as_bytes();
-        let len_i32 = i32::try_from(bytes.len())
-            .context("WASM memory size too large")?;
+        let len_i32 = i32::try_from(bytes.len()).context("WASM memory size too large")?;
         let ptr_i32 = self.alloc.call(&mut self.store, (len_i32, 1))?;
 
         let ptr_usize = usize::try_from(ptr_i32).context("pointer negative")?;
@@ -118,8 +117,7 @@ impl POWSolver {
             anyhow::bail!("WASM solve returned status 0 (failure)");
         }
 
-        let answer_bytes: [u8; 8] =
-            mem[(out_ptr_usize + 8)..(out_ptr_usize + 16)].try_into()?;
+        let answer_bytes: [u8; 8] = mem[(out_ptr_usize + 8)..(out_ptr_usize + 16)].try_into()?;
         let answer = f64::from_le_bytes(answer_bytes);
 
         // Cleanup stack
@@ -129,7 +127,7 @@ impl POWSolver {
             algorithm: challenge.algorithm,
             challenge: challenge.value,
             salt: challenge.salt,
-            
+
             // The answer from WASM is guaranteed to be an integer within i64 range.
             #[allow(clippy::cast_possible_truncation)]
             answer: answer as i64,

@@ -10,7 +10,7 @@ mod wasm_download;
 use anyhow::{Context, Result};
 use bytes::Buf;
 use futures_util::StreamExt;
-use reqwest::{header, Client};
+use reqwest::{Client, header};
 use serde_json::json;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -450,9 +450,13 @@ impl SseParser {
 
         let content_to_yield = if !is_new_object && !path.is_empty() {
             if path == "response/content" {
-                data.v.as_ref().and_then(|v| v.as_str().map(|s| StreamChunk::Content(s.to_string())))
+                data.v
+                    .as_ref()
+                    .and_then(|v| v.as_str().map(|s| StreamChunk::Content(s.to_string())))
             } else if path == "response/thinking_content" {
-                data.v.as_ref().and_then(|v| v.as_str().map(|s| StreamChunk::Thinking(s.to_string())))
+                data.v
+                    .as_ref()
+                    .and_then(|v| v.as_str().map(|s| StreamChunk::Thinking(s.to_string())))
             } else {
                 None
             }
@@ -472,9 +476,13 @@ impl SseParser {
         if path.is_empty() {
             if let Some(ref cur) = self.current_property {
                 let continuation_content = if cur == "response/content" {
-                    data.v.as_ref().and_then(|v| v.as_str().map(|s| StreamChunk::Content(s.to_string())))
+                    data.v
+                        .as_ref()
+                        .and_then(|v| v.as_str().map(|s| StreamChunk::Content(s.to_string())))
                 } else if cur == "response/thinking_content" {
-                    data.v.as_ref().and_then(|v| v.as_str().map(|s| StreamChunk::Thinking(s.to_string())))
+                    data.v
+                        .as_ref()
+                        .and_then(|v| v.as_str().map(|s| StreamChunk::Thinking(s.to_string())))
                 } else {
                     None
                 };
@@ -505,7 +513,9 @@ impl SseParser {
 }
 
 // Helper to turn an HTTP response into a stream of chunks.
-fn response_to_chunk_stream(response: reqwest::Response) -> impl futures_util::Stream<Item = Result<StreamChunk>> {
+fn response_to_chunk_stream(
+    response: reqwest::Response,
+) -> impl futures_util::Stream<Item = Result<StreamChunk>> {
     use async_stream::stream;
     stream! {
         let mut parser = SseParser::new();
