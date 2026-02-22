@@ -30,7 +30,6 @@ pub struct DeepSeekAPI {
 
 impl DeepSeekAPI {
     /// Creates a new `DeepSeek` API client.
-    /// Creates a new `DeepSeek` API client.
     ///
     /// # Errors
     /// Returns an error if:
@@ -64,7 +63,6 @@ impl DeepSeekAPI {
     }
 
     /// Creates a new chat session.
-    /// Creates a new chat session.
     ///
     /// # Errors
     /// Returns an error if the API request fails or the response cannot be parsed.
@@ -89,7 +87,6 @@ impl DeepSeekAPI {
         Ok(response.data.biz_data)
     }
 
-    /// Gets information about a chat session.
     /// Gets information about a chat session.
     ///
     /// # Errors
@@ -203,7 +200,6 @@ impl DeepSeekAPI {
         final_message.context("No final message received")
     }
 
-    /// Completes a chat message (streaming), yielding chunks of content or thinking.
     /// Completes a chat message (streaming), yielding chunks of content or thinking.
     ///
     /// This method automatically continues the generation if the response is incomplete,
