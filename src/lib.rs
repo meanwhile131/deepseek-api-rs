@@ -389,7 +389,10 @@ impl DeepSeekAPI {
 
     // Removed handle_property_update; logic moved to StreamingMessageBuilder
 
-    /// Uploads a file to the server.
+    /// Uploads a file to the server and waits for it to finish processing.
+    ///
+    /// This method will poll the server until the file status becomes `SUCCESS` or `ERROR`,
+    /// with a maximum of 60 attempts (2 seconds apart, total up to 2 minutes).
     ///
     /// # Arguments
     /// * `file_data` - The file content as bytes.
@@ -397,8 +400,10 @@ impl DeepSeekAPI {
     /// * `mime_type` - Optional MIME type; if `None`, attempts to guess from the file extension.
     ///
     /// # Errors
-    /// Returns an error if the `PoW` challenge fails, the upload request fails, or the response cannot be parsed.
+    /// Returns an error if the `PoW` challenge fails, the upload request fails, the response
+    /// cannot be parsed, or the file processing fails or times out.
     pub async fn upload_file(&self, file_data: Vec<u8>, filename: &str, mime_type: Option<&str>) -> Result<models::FileInfo> {
+        use std::time::Duration;
 
         // Define response structs
         #[derive(serde::Deserialize)]
@@ -447,9 +452,16 @@ impl DeepSeekAPI {
             .await?
             .error_for_status()?;
 
-        // 6. Parse response
+        // 6. Parse initial response (file is now pending)
         let upload: UploadResponse = response.json().await?;
-        Ok(upload.data.biz_data)
+        let file_id = upload.data.biz_data.id.clone();
+
+        // 7. Wait for processing (max 60 attempts, 2 seconds each)
+        let processed = self
+            .wait_for_file_processing(&file_id, 60, Duration::from_secs(2))
+            .await?;
+
+        Ok(processed)
     }
 
     /// Fetches information about a file by its ID.

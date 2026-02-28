@@ -2,7 +2,7 @@ use anyhow::Result;
 use deepseek_api::{DeepSeekAPI, StreamChunk};
 use futures_util::StreamExt;
 use std::env;
-use std::time::Duration;
+
 use tokio::pin;
 
 #[tokio::test]
@@ -19,31 +19,9 @@ async fn test_file_upload_and_use() -> Result<()> {
     let file_data = file_content.as_bytes().to_vec();
     let filename = "test.txt";
 
-    // Upload the file
-    let file_info = api.upload_file(file_data, filename, Some("text/plain")).await?;
-    println!("Uploaded file: {file_info:?}");
-
-    // Manually poll for file processing status with debug output (allow up to 4 minutes)
-    let max_attempts = 120;
-    let delay = Duration::from_secs(2);
-    let mut processed = None;
-
-    for attempt in 0..max_attempts {
-        tokio::time::sleep(delay).await;
-        let info = api.fetch_file_info(&file_info.id).await?;
-        println!("Attempt {}: file status = {:?}, error_code = {:?}", attempt, info.status, info.error_code);
-        match info.status.as_str() {
-            "SUCCESS" => {
-                processed = Some(info);
-                break;
-            }
-            "ERROR" => anyhow::bail!("File processing error: {:?}", info.error_code),
-            _ => (),
-        }
-    }
-
-    let processed = processed.expect("File processing timed out after 4 minutes");
-    println!("Processed file: {processed:?}");
+    // Upload the file (waits for processing internally)
+    let processed = api.upload_file(file_data, filename, Some("text/plain")).await?;
+    println!("Uploaded and processed file: {processed:?}");
 
     assert_eq!(processed.status, "SUCCESS");
     assert_eq!(processed.file_name, filename);
