@@ -5,9 +5,6 @@ use std::env;
 use std::time::Duration;
 use tokio::pin;
 
-// A 1x1 pixel PNG (base64 encoded)
-const TINY_PNG_BASE64: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAACklEQVR4nGMAAQAABQABDQottAAAAABJRU5ErkJggg==";
-
 #[tokio::test]
 async fn test_file_upload_and_use() -> Result<()> {
     let token = env::var("DEEPSEEK_TOKEN")
@@ -17,16 +14,13 @@ async fn test_file_upload_and_use() -> Result<()> {
     let chat = api.create_chat().await?;
     let chat_id = chat.id.as_str();
 
-    // Decode the PNG using the stable base64 API
-    let file_data = {
-        use base64::engine::general_purpose::STANDARD;
-        use base64::Engine;
-        STANDARD.decode(TINY_PNG_BASE64)?
-    };
-    let filename = "tiny.png";
+    // Create a simple text file content
+    let file_content = "Hello, this is a test file.\nIt contains two lines.";
+    let file_data = file_content.as_bytes().to_vec();
+    let filename = "test.txt";
 
     // Upload the file
-    let file_info = api.upload_file(file_data, filename, None).await?;
+    let file_info = api.upload_file(file_data, filename, Some("text/plain")).await?;
     println!("Uploaded file: {:?}", file_info);
 
     // Manually poll for file processing status with debug output (allow up to 4 minutes)
@@ -55,14 +49,20 @@ async fn test_file_upload_and_use() -> Result<()> {
     assert_eq!(processed.file_name, filename);
     assert!(processed.token_usage.is_some());
 
-    // Now use the file in a completion
-    let prompt = "What is shown in this image?";
+    // Now use the file in a completion, asking the model to read the file content
+    let prompt = "What is the content of the uploaded file?";
     let response = api
         .complete(chat_id, prompt, None, false, true, vec![processed.id.clone()])
         .await?;
 
     println!("Response: {}", response.content);
     assert!(!response.content.is_empty());
+    // Check that the response contains the expected text (or at least part of it)
+    assert!(
+        response.content.contains("Hello, this is a test file") || 
+        response.content.contains("two lines"),
+        "Response should mention the file content"
+    );
 
     // Optionally, test streaming with the file
     let stream = api.complete_stream(
@@ -75,10 +75,12 @@ async fn test_file_upload_and_use() -> Result<()> {
     );
     pin!(stream);
     let mut got_content = false;
+    let mut full_response = String::new();
     while let Some(chunk) = stream.next().await {
         match chunk? {
             StreamChunk::Content(c) => {
                 println!("Content chunk: {}", c);
+                full_response.push_str(&c);
                 got_content = true;
             }
             StreamChunk::Thinking(t) => println!("Thinking: {}", t),
@@ -89,6 +91,11 @@ async fn test_file_upload_and_use() -> Result<()> {
         }
     }
     assert!(got_content, "Should have received content");
+    assert!(
+        full_response.contains("Hello, this is a test file") ||
+        full_response.contains("two lines"),
+        "Streamed response should mention the file content"
+    );
 
     Ok(())
 }
