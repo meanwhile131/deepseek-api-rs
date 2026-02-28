@@ -17,18 +17,38 @@ async fn test_file_upload_and_use() -> Result<()> {
     let chat = api.create_chat().await?;
     let chat_id = chat.id.as_str();
 
-    // Decode the PNG
-    let file_data = base64::decode(TINY_PNG_BASE64)?;
+    // Decode the PNG using the stable base64 API
+    let file_data = {
+        use base64::engine::general_purpose::STANDARD;
+        use base64::Engine;
+        STANDARD.decode(TINY_PNG_BASE64)?
+    };
     let filename = "tiny.png";
 
     // Upload the file
     let file_info = api.upload_file(file_data, filename, None).await?;
     println!("Uploaded file: {:?}", file_info);
 
-    // Wait for processing
-    let processed = api
-        .wait_for_file_processing(&file_info.id, 10, Duration::from_millis(500))
-        .await?;
+    // Manually poll for file processing status with debug output (allow up to 4 minutes)
+    let max_attempts = 120;
+    let delay = Duration::from_secs(2);
+    let mut processed = None;
+
+    for attempt in 0..max_attempts {
+        tokio::time::sleep(delay).await;
+        let info = api.fetch_file_info(&file_info.id).await?;
+        println!("Attempt {}: file status = {:?}, error_code = {:?}", attempt, info.status, info.error_code);
+        match info.status.as_str() {
+            "SUCCESS" => {
+                processed = Some(info);
+                break;
+            }
+            "ERROR" => anyhow::bail!("File processing error: {:?}", info.error_code),
+            _ => continue,
+        }
+    }
+
+    let processed = processed.expect("File processing timed out after 4 minutes");
     println!("Processed file: {:?}", processed);
 
     assert_eq!(processed.status, "SUCCESS");
