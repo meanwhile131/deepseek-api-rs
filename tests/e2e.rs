@@ -15,7 +15,7 @@ async fn test_e2e_completion() {
     let chat_id = &chat.id;
 
     let response = api
-        .complete(chat_id, "Hello", None, false, false)
+        .complete(chat_id, "Hello", None, false, false, vec![])
         .await
         .unwrap();
 
@@ -79,6 +79,7 @@ async fn test_e2e_chat_info_after_completion() {
             None,
             false,
             false,
+            vec![],
         )
         .await
         .unwrap();
@@ -116,6 +117,7 @@ async fn test_e2e_thinking() {
             None,
             false,
             true,
+            vec![],
         )
         .await
         .unwrap();
@@ -146,6 +148,7 @@ async fn test_e2e_search() {
             None,
             true,
             false,
+            vec![],
         )
         .await
         .unwrap();
@@ -168,7 +171,7 @@ async fn test_e2e_conversation() {
 
     // First message
     let first_response = api
-        .complete(&chat_id, "My name is Alice.", None, false, false)
+        .complete(&chat_id, "My name is Alice.", None, false, false, vec![])
         .await
         .unwrap();
     assert!(
@@ -189,6 +192,7 @@ async fn test_e2e_conversation() {
             Some(first_message_id),
             false,
             false,
+            vec![],
         )
         .await
         .unwrap();
@@ -215,7 +219,7 @@ async fn test_e2e_streaming() {
     let chat = api.create_chat().await.unwrap();
     let chat_id = chat.id.clone();
 
-    let stream = api.complete_stream(chat_id, "Hello".to_string(), None, false, false);
+    let stream = api.complete_stream(chat_id, "Hello".to_string(), None, false, false, vec![]);
     pin_mut!(stream); // pin the stream so we can call .next()
 
     let mut got_content = false;
