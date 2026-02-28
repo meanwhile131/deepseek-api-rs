@@ -1,5 +1,33 @@
-use anyhow::{Result, anyhow};
-use serde::{Deserialize, Serialize};
+use anyhow::{anyhow, Result}
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+};
+use serde::{Deserialize, Serialize}
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
@@ -21,6 +49,20 @@ pub struct Message {
     pub accumulated_token_usage: Option<i64>,
 }
 
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+}
+
 // New structs for API responses
 #[derive(Debug, Clone, Deserialize)]
 pub struct ChatSession {
@@ -36,6 +78,20 @@ pub struct ChatSession {
     pub updated_at: f64,
 }
 
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+}
+
 // Streaming update from the server
 #[derive(Debug, Deserialize, Clone)]
 pub struct StreamingUpdate {
@@ -43,6 +99,20 @@ pub struct StreamingUpdate {
     pub p: Option<String>, // JSON pointer path (missing = empty)
     pub v: Option<serde_json::Value>, // value; None for delete?
     pub o: Option<String>,            // operation (SET, APPEND, etc.)
+}
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
 }
 
 // Builder that accumulates patches into a final Message
@@ -53,12 +123,82 @@ pub struct StreamingMessageBuilder {
     inner: serde_json::Value,
 }
 
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+}
+
 impl Default for StreamingMessageBuilder {
     fn default() -> Self {
         Self {
-            inner: serde_json::json!({}),
+            inner: serde_json::json!({}
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+}),
         }
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+}
     }
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+}
+}
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
 }
 
 impl StreamingMessageBuilder {
@@ -68,8 +208,36 @@ impl StreamingMessageBuilder {
     /// Returns an error if the provided value cannot be interpreted as a valid builder state.
     /// (Currently always returns `Ok`.)
     pub fn from_value(v: serde_json::Value) -> Result<Self> {
-        Ok(Self { inner: v })
+        Ok(Self { inner: v }
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+})
     }
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+}
 
     /// Applies a streaming update to the builder.
     ///
@@ -89,25 +257,137 @@ impl StreamingMessageBuilder {
             anyhow::bail!("Empty path");
         }
 
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+}
+
         let mut current = &mut self.inner;
         // Navigate to the parent of the target key
         for &key in keys.iter().take(keys.len() - 1) {
             if !current.is_object() {
-                *current = serde_json::json!({});
+                *current = serde_json::json!({}
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+});
             }
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+}
             // Get or create the next level
             current = match current.as_object_mut() {
                 Some(obj) => obj
                     .entry(key.to_string())
-                    .or_insert_with(|| serde_json::json!({})),
+                    .or_insert_with(|| serde_json::json!({}
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+})),
                 None => anyhow::bail!("Expected object at intermediate path segment"),
-            };
+            }
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+};
         }
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+}
 
         let last_key = keys.last().ok_or_else(|| anyhow!("Empty path"))?;
         if !current.is_object() {
-            *current = serde_json::json!({});
+            *current = serde_json::json!({}
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+});
         }
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+}
         let current_obj = current
             .as_object_mut()
             .ok_or_else(|| anyhow!("Expected object at target path"))?;
@@ -116,6 +396,20 @@ impl StreamingMessageBuilder {
             "SET" => {
                 current_obj.insert((*last_key).to_string(), value.clone());
             }
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+}
             "APPEND" => {
                 let entry = current_obj
                     .entry((*last_key).to_string())
@@ -124,14 +418,126 @@ impl StreamingMessageBuilder {
                     (entry, value)
                 {
                     existing.push_str(append);
-                } else {
-                    anyhow::bail!("APPEND only supported on strings at {path}");
                 }
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+} else {
+                    anyhow::bail!("APPEND only supported on strings at {path}
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+}");
+                }
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+}
             }
-            _ => anyhow::bail!("Unknown operation {operation} at {path}"),
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+}
+            _ => anyhow::bail!("Unknown operation {operation}
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+} at {path}
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+}"),
         }
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+}
         Ok(())
     }
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+}
 
     /// Builds the final `Message` from the accumulated patches.
     ///
@@ -140,9 +546,65 @@ impl StreamingMessageBuilder {
     pub fn build(self) -> Result<Message> {
         if let Some(response) = self.inner.get("response") {
             serde_json::from_value(response.clone()).map_err(Into::into)
-        } else {
+        }
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+} else {
             // Try to deserialize the whole object as Message
             serde_json::from_value(self.inner).map_err(Into::into)
         }
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+}
     }
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
+}
+}
+
+/// Information about an uploaded file.
+#[derive(Debug, Clone, Deserialize)]
+pub struct FileInfo {
+    pub id: String,
+    pub status: String,
+    pub file_name: String,
+    pub previewable: bool,
+    pub file_size: i64,
+    pub token_usage: Option<i64>,
+    pub error_code: Option<String>,
+    pub inserted_at: f64,
+    pub updated_at: f64,
 }

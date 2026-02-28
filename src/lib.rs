@@ -7,7 +7,7 @@ pub mod models;
 mod pow_solver;
 mod wasm_download;
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use bytes::Buf;
 use futures_util::StreamExt;
 use reqwest::{Client, header};
@@ -126,8 +126,8 @@ impl DeepSeekAPI {
         Ok(response.data.biz_data.chat_session)
     }
 
-    /// Sets the `PoW` header by solving a challenge.
-    async fn set_pow_header(&self) -> Result<String> {
+    /// Sets the `PoW` header by solving a challenge for the given target path.
+    async fn set_pow_header(&self, target_path: &str) -> Result<String> {
         #[derive(serde::Deserialize)]
         struct PowChallengeResponse {
             data: PowChallengeData,
@@ -140,10 +140,11 @@ impl DeepSeekAPI {
         struct PowChallengeBizData {
             challenge: Challenge,
         }
+        let request_body = serde_json::json!({ "target_path": target_path });
         let challenge_response = self
             .client
             .post("https://chat.deepseek.com/api/v0/chat/create_pow_challenge")
-            .body(POW_REQUEST)
+            .json(&request_body)
             .send()
             .await?
             .error_for_status()?;
@@ -173,6 +174,7 @@ impl DeepSeekAPI {
         parent_message_id: Option<i64>,
         search: bool,
         thinking: bool,
+        ref_file_ids: Vec<String>,
     ) -> Result<models::Message> {
         use futures_util::StreamExt;
         use tokio::pin;
@@ -218,13 +220,14 @@ impl DeepSeekAPI {
         parent_message_id: Option<i64>,
         search: bool,
         thinking: bool,
+        ref_file_ids: Vec<String>,
     ) -> impl futures_util::Stream<Item = Result<StreamChunk>> + '_ {
         use async_stream::stream;
 
         let this = self.clone();
         stream! {
             // Initial request
-            let pow_response = match this.set_pow_header().await {
+            let pow_response = match this.set_pow_header(COMPLETION_PATH).await {
                 Ok(r) => r,
                 Err(e) => {
                     yield Err(e);
@@ -235,7 +238,7 @@ impl DeepSeekAPI {
                 "chat_session_id": chat_id.clone(),
                 "prompt": prompt,
                 "parent_message_id": parent_message_id,
-                "ref_file_ids": [],
+                "ref_file_ids": ref_file_ids,
                 "search_enabled": search,
                 "thinking_enabled": thinking,
             });
@@ -343,7 +346,7 @@ impl DeepSeekAPI {
 
         let this = self.clone();
         stream! {
-            let pow_response = match this.set_pow_header().await {
+            let pow_response = match this.set_pow_header(COMPLETION_PATH).await {
                 Ok(r) => r,
                 Err(e) => {
                     yield Err(e);
@@ -384,6 +387,136 @@ impl DeepSeekAPI {
     }
 
     // Removed handle_property_update; logic moved to StreamingMessageBuilder
+
+    /// Uploads a file to the server.
+    ///
+    /// # Arguments
+    /// * `file_data` - The file content as bytes.
+    /// * `filename` - The name of the file.
+    /// * `mime_type` - Optional MIME type; if `None`, attempts to guess from the file extension.
+    ///
+    /// # Errors
+    /// Returns an error if the PoW challenge fails, the upload request fails, or the response cannot be parsed.
+    pub async fn upload_file(&self, file_data: Vec<u8>, filename: &str, mime_type: Option<&str>) -> Result<models::FileInfo> {
+        use anyhow::anyhow;
+
+        // 1. Get PoW challenge for file upload
+        let pow_response = self.set_pow_header("/api/v0/file/upload_file").await?;
+
+        // 2. Guess MIME type if not provided
+        let mime = mime_type.unwrap_or_else(|| {
+            match std::path::Path::new(filename)
+                .extension()
+                .and_then(|ext| ext.to_str())
+            {
+                Some("png") => "image/png",
+                Some("jpg") | Some("jpeg") => "image/jpeg",
+                Some("pdf") => "application/pdf",
+                Some("txt") => "text/plain",
+                _ => "application/octet-stream",
+            }
+        });
+
+        // 3. Prepare multipart form
+        let part = reqwest::multipart::Part::bytes(file_data)
+            .file_name(filename.to_string())
+            .mime_str(mime)?;
+        let form = reqwest::multipart::Form::new().part("file", part);
+
+        // 4. Send upload request
+        let file_size = file_data.len();
+        let response = self
+            .client
+            .post("https://chat.deepseek.com/api/v0/file/upload_file")
+            .header("x-ds-pow-response", pow_response)
+            .header("x-file-size", file_size.to_string())
+            .multipart(form)
+            .send()
+            .await?
+            .error_for_status()?;
+
+        // 5. Parse response
+        #[derive(serde::Deserialize)]
+        struct UploadResponse {
+            data: UploadData,
+        }
+        #[derive(serde::Deserialize)]
+        struct UploadData {
+            biz_data: models::FileInfo,
+        }
+        let upload: UploadResponse = response.json().await?;
+        Ok(upload.data.biz_data)
+    }
+
+    /// Fetches information about a file by its ID.
+    ///
+    /// # Errors
+    /// Returns an error if the request fails, the response indicates an error, or the file is not found.
+    pub async fn fetch_file_info(&self, file_id: &str) -> Result<models::FileInfo> {
+        use anyhow::anyhow;
+
+        let url = format!(
+            "https://chat.deepseek.com/api/v0/file/fetch_files?file_ids={}",
+            file_id
+        );
+        #[derive(serde::Deserialize)]
+        struct FetchResponse {
+            data: FetchData,
+        }
+        #[derive(serde::Deserialize)]
+        struct FetchData {
+            biz_data: FetchBizData,
+        }
+        #[derive(serde::Deserialize)]
+        struct FetchBizData {
+            files: Vec<models::FileInfo>,
+        }
+        let resp: FetchResponse = self
+            .client
+            .get(&url)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+        resp.data
+            .biz_data
+            .files
+            .into_iter()
+            .next()
+            .ok_or_else(|| anyhow!("No file found with ID {}", file_id))
+    }
+
+    /// Waits for a file to finish processing (status `SUCCESS`).
+    ///
+    /// # Arguments
+    /// * `file_id` - The file ID.
+    /// * `max_attempts` - Maximum number of polling attempts.
+    /// * `delay` - Delay between attempts (e.g., `std::time::Duration::from_millis(500)`).
+    ///
+    /// # Errors
+    /// Returns an error if the file status becomes `ERROR`, or if the maximum attempts are exceeded.
+    pub async fn wait_for_file_processing(
+        &self,
+        file_id: &str,
+        max_attempts: usize,
+        delay: std::time::Duration,
+    ) -> Result<models::FileInfo> {
+        for attempt in 0..max_attempts {
+            let info = self.fetch_file_info(file_id).await?;
+            match info.status.as_str() {
+                "SUCCESS" => return Ok(info),
+                "ERROR" => anyhow::bail!("File processing error: {:?}", info.error_code),
+                _ => {
+                    if attempt == max_attempts - 1 {
+                        anyhow::bail!("File processing timed out after {} attempts", max_attempts);
+                    }
+                    tokio::time::sleep(delay).await;
+                }
+            }
+        }
+        unreachable!()
+    }
 }
 
 /// Represents a chunk from the streaming response.
