@@ -7,8 +7,9 @@ pub mod models;
 mod pow_solver;
 mod wasm_download;
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use bytes::Buf;
+use reqwest::multipart;
 use futures_util::StreamExt;
 use reqwest::{Client, header};
 use serde_json::json;
@@ -19,7 +20,6 @@ use crate::pow_solver::Challenge;
 
 const COMPLETION_PATH: &str = "/api/v0/chat/completion";
 const CONTINUE_PATH: &str = "/api/v0/chat/continue";
-const POW_REQUEST: &str = r#"{"target_path":"/api/v0/chat/completion"}"#;
 
 /// Client for interacting with the `DeepSeek` API.
 pub struct DeepSeekAPI {
@@ -185,6 +185,7 @@ impl DeepSeekAPI {
             parent_message_id,
             search,
             thinking,
+            ref_file_ids,
         );
         pin!(stream);
 
@@ -284,7 +285,7 @@ impl DeepSeekAPI {
 
                 if let Some(msg_id) = message_id_for_continuation.take() {
                     // Start continuation
-                    let pow_response = match this.set_pow_header().await {
+                    let pow_response = match this.set_pow_header(CONTINUE_PATH).await {
                         Ok(r) => r,
                         Err(e) => {
                             yield Err(e);
@@ -346,7 +347,7 @@ impl DeepSeekAPI {
 
         let this = self.clone();
         stream! {
-            let pow_response = match this.set_pow_header(COMPLETION_PATH).await {
+            let pow_response = match this.set_pow_header(CONTINUE_PATH).await {
                 Ok(r) => r,
                 Err(e) => {
                     yield Err(e);
@@ -396,35 +397,46 @@ impl DeepSeekAPI {
     /// * `mime_type` - Optional MIME type; if `None`, attempts to guess from the file extension.
     ///
     /// # Errors
-    /// Returns an error if the PoW challenge fails, the upload request fails, or the response cannot be parsed.
+    /// Returns an error if the `PoW` challenge fails, the upload request fails, or the response cannot be parsed.
     pub async fn upload_file(&self, file_data: Vec<u8>, filename: &str, mime_type: Option<&str>) -> Result<models::FileInfo> {
-        use anyhow::anyhow;
+
+        // Define response structs
+        #[derive(serde::Deserialize)]
+        struct UploadResponse {
+            data: UploadData,
+        }
+        #[derive(serde::Deserialize)]
+        struct UploadData {
+            biz_data: models::FileInfo,
+        }
 
         // 1. Get PoW challenge for file upload
         let pow_response = self.set_pow_header("/api/v0/file/upload_file").await?;
 
-        // 2. Guess MIME type if not provided
+        // 2. Compute file size before moving data
+        let file_size = file_data.len();
+
+        // 3. Guess MIME type if not provided
         let mime = mime_type.unwrap_or_else(|| {
             match std::path::Path::new(filename)
                 .extension()
                 .and_then(|ext| ext.to_str())
             {
                 Some("png") => "image/png",
-                Some("jpg") | Some("jpeg") => "image/jpeg",
+                Some("jpg" | "jpeg") => "image/jpeg",
                 Some("pdf") => "application/pdf",
                 Some("txt") => "text/plain",
                 _ => "application/octet-stream",
             }
         });
 
-        // 3. Prepare multipart form
-        let part = reqwest::multipart::Part::bytes(file_data)
+        // 4. Prepare multipart form
+        let part = multipart::Part::bytes(file_data)
             .file_name(filename.to_string())
             .mime_str(mime)?;
-        let form = reqwest::multipart::Form::new().part("file", part);
+        let form = multipart::Form::new().part("file", part);
 
-        // 4. Send upload request
-        let file_size = file_data.len();
+        // 5. Send upload request
         let response = self
             .client
             .post("https://chat.deepseek.com/api/v0/file/upload_file")
@@ -435,15 +447,7 @@ impl DeepSeekAPI {
             .await?
             .error_for_status()?;
 
-        // 5. Parse response
-        #[derive(serde::Deserialize)]
-        struct UploadResponse {
-            data: UploadData,
-        }
-        #[derive(serde::Deserialize)]
-        struct UploadData {
-            biz_data: models::FileInfo,
-        }
+        // 6. Parse response
         let upload: UploadResponse = response.json().await?;
         Ok(upload.data.biz_data)
     }
@@ -455,10 +459,7 @@ impl DeepSeekAPI {
     pub async fn fetch_file_info(&self, file_id: &str) -> Result<models::FileInfo> {
         use anyhow::anyhow;
 
-        let url = format!(
-            "https://chat.deepseek.com/api/v0/file/fetch_files?file_ids={}",
-            file_id
-        );
+        // Define response structs
         #[derive(serde::Deserialize)]
         struct FetchResponse {
             data: FetchData,
@@ -471,6 +472,10 @@ impl DeepSeekAPI {
         struct FetchBizData {
             files: Vec<models::FileInfo>,
         }
+
+        let url = format!(
+            "https://chat.deepseek.com/api/v0/file/fetch_files?file_ids={file_id}"
+        );
         let resp: FetchResponse = self
             .client
             .get(&url)
@@ -484,7 +489,7 @@ impl DeepSeekAPI {
             .files
             .into_iter()
             .next()
-            .ok_or_else(|| anyhow!("No file found with ID {}", file_id))
+            .ok_or_else(|| anyhow!("No file found with ID {file_id}"))
     }
 
     /// Waits for a file to finish processing (status `SUCCESS`).
@@ -509,7 +514,7 @@ impl DeepSeekAPI {
                 "ERROR" => anyhow::bail!("File processing error: {:?}", info.error_code),
                 _ => {
                     if attempt == max_attempts - 1 {
-                        anyhow::bail!("File processing timed out after {} attempts", max_attempts);
+                        anyhow::bail!("File processing timed out after {max_attempts} attempts");
                     }
                     tokio::time::sleep(delay).await;
                 }

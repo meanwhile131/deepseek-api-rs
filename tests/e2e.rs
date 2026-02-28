@@ -1,4 +1,4 @@
-//! End-to-end tests for the DeepSeek API client.
+//! End-to-end tests for the `DeepSeek` API client.
 //!
 //! These tests require the `DEEPSEEK_TOKEN` environment variable to be set.
 
@@ -23,7 +23,7 @@ async fn test_e2e_completion() {
         !response.content.is_empty(),
         "Response content should not be empty"
     );
-    println!("Completion response: {:#?}", response);
+    println!("Completion response: {response:#?}");
     // Check that some expected fields are present
     assert!(
         response.message_id.is_some(),
@@ -128,7 +128,7 @@ async fn test_e2e_thinking() {
     );
     // thinking_content may or may not be present depending on the model
     if let Some(thinking) = &response.thinking_content {
-        println!("Thinking content: {}", thinking);
+        println!("Thinking content: {thinking}");
     }
 }
 
@@ -227,13 +227,13 @@ async fn test_e2e_streaming() {
         match chunk.unwrap() {
             StreamChunk::Content(content) => {
                 got_content = true;
-                println!("Content: {}", content);
+                println!("Content: {content}");
             }
             StreamChunk::Thinking(thought) => {
-                println!("Thinking: {}", thought);
+                println!("Thinking: {thought}");
             }
             StreamChunk::Message(msg) => {
-                println!("Final message: {:#?}", msg);
+                println!("Final message: {msg:#?}");
                 // Optionally check content and fields
                 assert!(
                     !msg.content.is_empty(),

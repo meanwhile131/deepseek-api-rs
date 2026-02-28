@@ -17,7 +17,7 @@ async fn main() -> anyhow::Result<()> {
     println!("Chat ID: {chat_id}");
     println!("Sending prompt: {prompt}");
 
-    let stream = api.complete_stream(chat_id.to_string(), prompt, None, true, true);
+    let stream = api.complete_stream(chat_id.to_string(), prompt, None, true, true, vec![]);
     pin!(stream);
     while let Some(chunk) = stream.next().await {
         match chunk {

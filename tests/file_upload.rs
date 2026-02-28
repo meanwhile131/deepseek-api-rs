@@ -21,7 +21,7 @@ async fn test_file_upload_and_use() -> Result<()> {
 
     // Upload the file
     let file_info = api.upload_file(file_data, filename, Some("text/plain")).await?;
-    println!("Uploaded file: {:?}", file_info);
+    println!("Uploaded file: {file_info:?}");
 
     // Manually poll for file processing status with debug output (allow up to 4 minutes)
     let max_attempts = 120;
@@ -38,12 +38,12 @@ async fn test_file_upload_and_use() -> Result<()> {
                 break;
             }
             "ERROR" => anyhow::bail!("File processing error: {:?}", info.error_code),
-            _ => continue,
+            _ => (),
         }
     }
 
     let processed = processed.expect("File processing timed out after 4 minutes");
-    println!("Processed file: {:?}", processed);
+    println!("Processed file: {processed:?}");
 
     assert_eq!(processed.status, "SUCCESS");
     assert_eq!(processed.file_name, filename);
@@ -79,13 +79,13 @@ async fn test_file_upload_and_use() -> Result<()> {
     while let Some(chunk) = stream.next().await {
         match chunk? {
             StreamChunk::Content(c) => {
-                println!("Content chunk: {}", c);
+                println!("Content chunk: {c}");
                 full_response.push_str(&c);
                 got_content = true;
             }
-            StreamChunk::Thinking(t) => println!("Thinking: {}", t),
+            StreamChunk::Thinking(t) => println!("Thinking: {t}"),
             StreamChunk::Message(msg) => {
-                println!("Final message: {:?}", msg);
+                println!("Final message: {msg:?}");
                 assert!(!msg.content.is_empty());
             }
         }
