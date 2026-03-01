@@ -77,3 +77,24 @@ async fn test_file_upload_and_use() -> Result<()> {
 
     Ok(())
 }
+
+#[tokio::test]
+async fn test_upload_empty_file() -> Result<()> {
+    let token = env::var("DEEPSEEK_TOKEN")
+        .expect("DEEPSEEK_TOKEN environment variable must be set to run this test");
+
+    let api = DeepSeekAPI::new(token).await?;
+
+    // Create an empty file
+    let file_data = Vec::new();
+    let filename = "empty.txt";
+
+    // Upload the empty file - should fail with "File content is empty"
+    let result = api.upload_file(file_data, filename, Some("text/plain")).await;
+
+    assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(err.to_string().contains("File content is empty"));
+
+    Ok(())
+}
