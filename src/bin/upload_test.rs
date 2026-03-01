@@ -22,7 +22,7 @@ async fn main() -> anyhow::Result<()> {
     println!("Uploading {} ({} bytes)...", file_path, file_data.len());
     let file_info = api.upload_file(file_data, filename, None).await?;
     println!("Upload successful!");
-    println!("File info: {:#?}", file_info);
+    println!("File info: {file_info:#?}");
 
     Ok(())
 }
