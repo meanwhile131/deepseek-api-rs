@@ -512,7 +512,7 @@ impl DeepSeekAPI {
     /// * `delay` - Delay between attempts (e.g., `std::time::Duration::from_millis(500)`).
     ///
     /// # Errors
-    /// Returns an error if the file status becomes `ERROR`, or if the maximum attempts are exceeded.
+    /// Returns an error if the file status becomes `ERROR` or `CONTENT_EMPTY`, or if the maximum attempts are exceeded.
     pub async fn wait_for_file_processing(
         &self,
         file_id: &str,
@@ -524,6 +524,7 @@ impl DeepSeekAPI {
             match info.status.as_str() {
                 "SUCCESS" => return Ok(info),
                 "ERROR" => anyhow::bail!("File processing error: {:?}", info.error_code),
+                "CONTENT_EMPTY" => anyhow::bail!("File content is empty"),
                 _ => {
                     if attempt == max_attempts - 1 {
                         anyhow::bail!("File processing timed out after {max_attempts} attempts");
