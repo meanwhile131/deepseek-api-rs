@@ -252,3 +252,109 @@ async fn test_e2e_streaming() {
         "Should have received at least one content chunk"
     );
 }
+
+#[tokio::test]
+async fn test_second_response_first_thinking_token() {
+    let token = std::env::var("DEEPSEEK_TOKEN")
+        .expect("DEEPSEEK_TOKEN environment variable must be set to run this test");
+
+    let api = DeepSeekAPI::new(token).await.unwrap();
+    let chat = api.create_chat().await.unwrap();
+    let chat_id = chat.id.clone();
+
+    // First message without thinking to establish conversation
+    let first_response = api
+        .complete(&chat_id, "Hello, my name is TestUser.", None, false, false, vec![])
+        .await
+        .unwrap();
+    let first_message_id = first_response.message_id.expect("first response should have message_id");
+
+    // Second message with thinking enabled
+    let stream = api.complete_stream(
+        chat_id.clone(),
+        "What is my name? Please think step by step before answering.".to_string(),
+        Some(first_message_id),
+        false,
+        true, // thinking enabled
+        vec![],
+    );
+    pin_mut!(stream);
+
+    let mut thinking_chunks_received = Vec::new();
+    let mut content_chunks_received = Vec::new();
+    let mut final_message = None;
+    let mut first_thinking_chunk = None;
+
+    while let Some(chunk) = stream.next().await {
+        match chunk.unwrap() {
+            StreamChunk::Thinking(thought) => {
+                if first_thinking_chunk.is_none() {
+                    first_thinking_chunk = Some(thought.clone());
+                }
+                thinking_chunks_received.push(thought);
+            }
+            StreamChunk::Content(content) => {
+                content_chunks_received.push(content);
+            }
+            StreamChunk::Message(msg) => {
+                println!("Final message received");
+                final_message = Some(msg);
+                break;
+            }
+        }
+    }
+
+    // Verify that we received at least one thinking chunk and at least one content chunk
+    assert!(
+        !thinking_chunks_received.is_empty(),
+        "Expected at least one thinking chunk for the second response"
+    );
+    assert!(
+        !content_chunks_received.is_empty(),
+        "Expected at least one content chunk for the second response"
+    );
+
+    // Build the full thinking content from all chunks to check the beginning.
+    let full_thinking: String = thinking_chunks_received.concat();
+    let trimmed_start = full_thinking.trim_start();
+    let first_non_whitespace_char = trimmed_start.chars().next();
+
+    assert!(
+        first_non_whitespace_char.is_some(),
+        "Full thinking content is empty or only whitespace"
+    );
+
+    // For the reported issue, the first token was missing, causing the output to start with a space.
+    // So we ensure the full thinking does not start with whitespace.
+    assert!(
+        !full_thinking.starts_with(char::is_whitespace),
+        "Full thinking content should not start with whitespace, but it starts with: {:?}",
+        &full_thinking.chars().take(10).collect::<String>()
+    );
+
+    // Also check the first chunk specifically – if it starts with whitespace, that's a problem.
+    if let Some(first_chunk) = first_thinking_chunk {
+        let first_char = first_chunk.chars().next();
+        assert!(
+            first_char.is_some() && !first_char.unwrap().is_whitespace(),
+            "First thinking chunk should start with a non-whitespace character, but got: {:?}",
+            first_chunk
+        );
+    } else {
+        panic!("No thinking chunk received");
+    }
+
+    // The final message should be present
+    let final_msg = final_message.expect("No final message received");
+    assert!(
+        !final_msg.content.is_empty(),
+        "Final message content should not be empty"
+    );
+    // The parent_id may be either the first message ID or an intermediate assistant message ID;
+    // we only require that it exists and that the conversation is coherent.
+    assert!(
+        final_msg.parent_id.is_some(),
+        "Final message should have a parent_id"
+    );
+    assert!(final_msg.message_id.is_some());
+}
