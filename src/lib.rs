@@ -621,27 +621,21 @@ impl SseParser {
             {
                 self.builder = crate::models::StreamingMessageBuilder::from_value(v.clone())?;
                 // Yield initial thinking chunk if present and not yet yielded.
-                if !self.initial_thinking_yielded {
-                    if let Some(thinking_val) = v.get("response").and_then(|resp| resp.get("thinking_content")) {
-                        if let Some(thinking_str) = thinking_val.as_str() {
-                            if !thinking_str.is_empty() {
+                if !self.initial_thinking_yielded
+                    && let Some(thinking_val) = v.get("response").and_then(|resp| resp.get("thinking_content"))
+                        && let Some(thinking_str) = thinking_val.as_str()
+                            && !thinking_str.is_empty() {
                                 self.initial_thinking_yielded = true;
                                 return Ok(Some(StreamChunk::Thinking(thinking_str.to_string())));
                             }
-                        }
-                    }
-                }
                 // Yield initial content chunk if present and no thinking was yielded.
-                if !self.initial_content_yielded && !self.initial_thinking_yielded {
-                    if let Some(content_val) = v.get("response").and_then(|resp| resp.get("content")) {
-                        if let Some(content_str) = content_val.as_str() {
-                            if !content_str.is_empty() {
+                if !self.initial_content_yielded && !self.initial_thinking_yielded
+                    && let Some(content_val) = v.get("response").and_then(|resp| resp.get("content"))
+                        && let Some(content_str) = content_val.as_str()
+                            && !content_str.is_empty() {
                                 self.initial_content_yielded = true;
                                 return Ok(Some(StreamChunk::Content(content_str.to_string())));
                             }
-                        }
-                    }
-                }
             }
             return Ok(None);
         }
